@@ -1,0 +1,7 @@
+opencv-python>=4.10
+numpy>=1.26
+mss>=9.0
+bettercam>=1.0
+pynput>=1.7
+pywin32>=306
+win11toast>=0.35
