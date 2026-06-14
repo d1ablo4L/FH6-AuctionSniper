@@ -54,7 +54,7 @@ Monitors the Auction House for the car you set, buys it instantly as soon as it 
 - Resolution 4k/2k/1080p/720p - Fullscreen, unlocked frame rate - HUD size 100%
 - Graphics preset Very Low
 - Animated background (Visual accessibility) **Off**
-- Game language set to **Italian**
+- Game language set to **English**
 - Wired Ethernet connection strongly recommended
 
 <img width="1386" height="763" alt="image-4" src="https://github.com/user-attachments/assets/fd2bf173-259f-4458-938b-2267144ce3ab" />
