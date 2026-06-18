@@ -44,10 +44,14 @@ class GameIO:
                 and self._last_screen != Screen.UNKNOWN):
             targets = targets | {self._last_screen}
         key = ("screen", frozenset(targets) if targets is not None else None)
+        thresholds = vision.thresholds_from_config(self.cfg)
+        fallback = getattr(self.cfg, "match_threshold",
+                           vision.DEFAULT_MATCH_THRESHOLD)
         result = self._read(
             key,
             lambda f: vision.identify_screen(
-                f, self.templates, self.cfg.match_threshold, targets=targets))
+                f, self.templates, fallback,
+                targets=targets, thresholds=thresholds))
         if result != self._last_screen:
             log.info("screen -> %s", result.name)
             self._last_screen = result
@@ -60,10 +64,12 @@ class GameIO:
         return self._read("confirm", vision.is_confirm_highlighted)
 
     def card_sold(self) -> bool:
-        return self._read("card_sold", vision.is_card_sold)
+        th = getattr(self.cfg, "match_threshold_sold", 0.70)
+        return self._read("card_sold", lambda f: vision.is_card_sold(f, th))
 
     def first_buyable_slot(self) -> int:
-        return self._read("slot", vision.first_buyable_slot)
+        th = getattr(self.cfg, "match_threshold_sold", 0.70)
+        return self._read("slot", lambda f: vision.first_buyable_slot(f, th))
 
     def press(self, name: str, times: int = 1) -> None:
         log.info("press %s%s", name, f" x{times}" if times > 1 else "")

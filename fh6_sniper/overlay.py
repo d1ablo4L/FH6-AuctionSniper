@@ -58,9 +58,6 @@ UI_SCALING = round(1.3333 * UI_SHRINK, 4)
 # ── Settings menu spec ──────────────────────────────────────────
 SETTINGS_SPEC = [
     ("section", "Speed"),
-    {"key": "match_threshold", "label": "Recognition threshold", "kind": "slider",
-     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
-     "desc": "How closely a screen must match the template. Higher = stricter."},
     {"key": "poll_interval_ms", "label": "Poll interval (ms)", "kind": "range",
      "lo": 5, "hi": 150, "step": 1, "int": True,
      "desc": "How often the screen is re-checked. Lower = reacts sooner."},
@@ -76,6 +73,48 @@ SETTINGS_SPEC = [
     {"key": "buyout_select_delay_ms", "label": "Confirm delay (ms)", "kind": "slider",
      "lo": 0, "hi": 500, "step": 5, "int": True,
      "desc": "Extra wait before confirming the purchase. 0 = maximum speed."},
+
+    ("section", "Match search"),
+    {"key": "match_threshold_ah_landing", "label": "Match: Landing", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the Auction House landing screen. Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_search", "label": "Match: Search", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the Search screen. Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_results", "label": "Match: Results", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the results list (cars found). Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_results_empty", "label": "Match: Empty results", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the 'no auctions' screen. Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_sold", "label": "Match: SOLD stamp", "kind": "slider",
+     "lo": 0.40, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "How strongly the SOLD stamp must match to skip a sold car. Lower if sold cars slip through; higher if it wrongly marks cars as sold. Recommended ~0.70."},
+
+    ("section", "Match buy"),
+    {"key": "match_threshold_auction_options", "label": "Match: Auction options", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the auction options menu. Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_player_options", "label": "Match: Player options", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for your own listing menu (sold cars). Recommended ~0.80 (matches strong)."},
+    {"key": "match_threshold_buy_out", "label": "Match: Buy Out", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the Buy Out confirm screen. Moving background = matches WEAK, recommended ~0.60. Higher makes the buyout stall."},
+    {"key": "match_threshold_buyout_progress", "label": "Match: Buyout progress", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the buyout 'in progress' screen. Moving background = matches WEAK, recommended ~0.60."},
+
+    ("section", "Match collect"),
+    {"key": "match_threshold_buyout_success", "label": "Match: Buyout success", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the 'purchase successful' screen. Recommended ~0.78."},
+    {"key": "match_threshold_buyout_failed", "label": "Match: Buyout failed", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the 'purchase failed' screen. Recommended ~0.78."},
+    {"key": "match_threshold_claim_car", "label": "Match: Claim car", "kind": "slider",
+     "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
+     "desc": "Threshold for the Claim/Collect car screen. Recommended ~0.78."},
 
     ("section", "Auto-stop"),
     {"key": "auto_stop_enabled", "label": "Auto-stop", "kind": "toggle",
@@ -135,6 +174,17 @@ SETTINGS_SPEC = [
     {"key": "hotkey_panic", "label": "Panic key", "kind": "text",
      "desc": "Global immediate-stop shortcut (e.g. <f9>). Requires restart."},
 ]
+
+
+SECTION_GROUPS = {"Match": ["Match search", "Match buy", "Match collect"]}
+_CHILD_TO_GROUP = {c: g for g, cs in SECTION_GROUPS.items() for c in cs}
+
+
+def _child_label(name: str) -> str:
+    for g in SECTION_GROUPS:
+        if name.startswith(g + " "):
+            return name[len(g) + 1:].capitalize()
+    return name
 
 
 # ── Pure helpers (testable without tkinter) ─────────────────────────────────────
@@ -814,6 +864,9 @@ class Overlay:
         self._sec_nav = {}
         self._cur_section = None
         self._sec_sidebar = {}
+        self._group_sidebar = {}
+        self._sidebar_entries = []
+        self._group_expanded = {g: False for g in SECTION_GROUPS}
         self._section_names = []
         self._sb_wide = False
         self._sec_expanded = False
@@ -892,7 +945,7 @@ class Overlay:
             _pg.pack_forget()
         _n_main = len([k for k, _i, _l in self.NAV
                        if not (k == "settings" and self._cfg is None)])
-        _n_sub = len(self._section_names)
+        _n_sub = len(self._section_names) + len(SECTION_GROUPS)
         _sidebar_need = (NAV_TOP_Y + _n_main * NAV_ITEM_H
                          + _n_sub * NAV_SUB_H + round(24 * UI_SHRINK))
         _bottom_margin = round(34 * UI_SHRINK)
@@ -1071,14 +1124,17 @@ class Overlay:
         if self._cfg is not None:
             self._section_names = [n for n, _s in self._settings_sections()]
             for name in self._section_names:
+                child = name in _CHILD_TO_GROUP
+                indent = round((52 if child else 32) * UI_SHRINK)
                 si = tk.Frame(parent, bg=_NAV_BG, cursor="hand2")
                 sbar = tk.Frame(si, bg=_NAV_BG, width=3)
                 sbar.pack(side="left", fill="y")
-                slbl = tk.Label(si, text=name, bg=_NAV_BG, fg=_DIM,
+                slbl = tk.Label(si, text=_child_label(name) if child else name,
+                                bg=_NAV_BG, fg=_DIM,
                                 font=("Segoe UI", 11, "bold"), anchor="w",
                                 justify="left",
                                 wraplength=SIDEBAR_WIDE_W - round(40 * UI_SHRINK))
-                slbl.pack(side="left", padx=(round(32 * UI_SHRINK), 0))
+                slbl.pack(side="left", padx=(indent, 0))
                 for w in (si, slbl):
                     w.bind("<Button-1>",
                            lambda _e, n=name: self._show_section(n))
@@ -1088,11 +1144,41 @@ class Overlay:
                            lambda _e, n=name: self._sec_hover(n, False))
                 self._sec_sidebar[name] = (si, sbar, slbl)
 
+            for label in SECTION_GROUPS:
+                gi = tk.Frame(parent, bg=_NAV_BG, cursor="hand2")
+                gbar = tk.Frame(gi, bg=_NAV_BG, width=3)
+                gbar.pack(side="left", fill="y")
+                glbl = tk.Label(gi, text=label, bg=_NAV_BG, fg=_DIM,
+                                font=("Segoe UI", 11, "bold"), anchor="w",
+                                justify="left",
+                                wraplength=SIDEBAR_WIDE_W - round(40 * UI_SHRINK))
+                glbl.pack(side="left", padx=(round(32 * UI_SHRINK), 0))
+                for w in (gi, glbl):
+                    w.bind("<Button-1>",
+                           lambda _e, n=label: self._toggle_nav_group(n))
+                    w.bind("<Enter>",
+                           lambda _e, n=label: self._group_hover(n, True))
+                    w.bind("<Leave>",
+                           lambda _e, n=label: self._group_hover(n, False))
+                self._group_sidebar[label] = (gi, gbar, glbl)
+
+            self._sidebar_entries = []
+            seen = set()
+            for name in self._section_names:
+                g = _CHILD_TO_GROUP.get(name)
+                if g is None:
+                    self._sidebar_entries.append(("section", name))
+                elif g not in seen:
+                    seen.add(g)
+                    self._sidebar_entries.append(("group", g))
+
     def _layout_sidebar(self):
         keys = [k for k, _icn, _lbl in self.NAV
                 if not (k == "settings" and self._cfg is None)]
         for _n, (si, _b, _l) in self._sec_sidebar.items():
             si.place_forget()
+        for _lbl, (gi, _b, _l) in self._group_sidebar.items():
+            gi.place_forget()
 
         if not self._sb_wide:
             n = len(keys)
@@ -1127,10 +1213,22 @@ class Overlay:
             self._nav[k][0].place(x=0, y=y, width=self._sb_w, height=NAV_ITEM_H)
             y += NAV_ITEM_H
             if k == "settings" and self._sec_expanded:
-                for name in self._section_names:
-                    si = self._sec_sidebar[name][0]
-                    si.place(x=0, y=y, width=self._sb_w, height=NAV_SUB_H)
-                    y += NAV_SUB_H
+                for entry in self._sidebar_entries:
+                    if entry[0] == "section":
+                        si = self._sec_sidebar[entry[1]][0]
+                        si.place(x=0, y=y, width=self._sb_w, height=NAV_SUB_H)
+                        y += NAV_SUB_H
+                    else:
+                        label = entry[1]
+                        gi = self._group_sidebar[label][0]
+                        gi.place(x=0, y=y, width=self._sb_w, height=NAV_SUB_H)
+                        y += NAV_SUB_H
+                        if self._group_expanded.get(label):
+                            for child in SECTION_GROUPS[label]:
+                                ci = self._sec_sidebar[child][0]
+                                ci.place(x=0, y=y, width=self._sb_w,
+                                         height=NAV_SUB_H)
+                                y += NAV_SUB_H
 
     def _retry_align(self):
         self._align_retry_id = None
@@ -1438,6 +1536,31 @@ class Overlay:
         si, sbar, slbl = self._sec_sidebar[name]
         slbl.config(fg=_ROG if on else _DIM)
 
+    def _group_hover(self, label, on):
+        gi, gbar, glbl = self._group_sidebar[label]
+        hot = on or self._group_expanded.get(label, False) or \
+            self._cur_section in SECTION_GROUPS.get(label, [])
+        glbl.config(fg=_ROG if hot else _DIM)
+
+    def _toggle_nav_group(self, label):
+        self._group_expanded[label] = not self._group_expanded.get(label, False)
+        if self._group_expanded[label]:
+            children = SECTION_GROUPS.get(label, [])
+            if children:
+                self._show_section(children[0])
+        else:
+            self._refresh_group_buttons()
+        self._layout_sidebar()
+
+    def _refresh_group_buttons(self):
+        for label, (gi, gbar, glbl) in self._group_sidebar.items():
+            parent_of_cur = self._cur_section in SECTION_GROUPS.get(label, [])
+            expanded = self._group_expanded.get(label, False)
+            bgc = _NAV_ACT if parent_of_cur else _NAV_BG
+            gi.config(bg=bgc)
+            gbar.config(bg=_ROG if parent_of_cur else _NAV_BG)
+            glbl.config(fg=_ROG if (parent_of_cur or expanded) else _DIM, bg=bgc)
+
     def _show_section(self, name):
         if name not in self._sec_frames:
             return
@@ -1456,6 +1579,7 @@ class Overlay:
             si.config(bg=bgc)
             sbar.config(bg=_ROG if active else _NAV_BG)
             slbl.config(fg=_ROG if active else _DIM, bg=bgc)
+        self._refresh_group_buttons()
 
     def _add_setting_row(self, parent, spec):
         key, kind = spec["key"], spec["kind"]
@@ -1739,7 +1863,7 @@ class Overlay:
         tk.Label(page, text="Version", bg=_BG, fg=_ROG,
                  font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=PAD,
                                                      pady=(14, 2))
-        tk.Label(page, text="V.2.0.0  \u00b7  Created by d1ablo", bg=_BG,
+        tk.Label(page, text="V.2.0.2 Beta  \u00b7  Created by d1ablo", bg=_BG,
                  fg=_DIM, font=("Segoe UI", 13)).pack(anchor="w", padx=PAD)
         return page
 

@@ -9,7 +9,18 @@ DEFAULT_CONFIG_PATH = Path("config.json")
 @dataclass
 class Config:
     window_title: str = "Forza Horizon 6"
-    match_threshold: float = 0.80
+    match_threshold_search: float = 0.80
+    match_threshold_results: float = 0.80
+    match_threshold_results_empty: float = 0.80
+    match_threshold_auction_options: float = 0.80
+    match_threshold_player_options: float = 0.80
+    match_threshold_buy_out: float = 0.60
+    match_threshold_buyout_progress: float = 0.60
+    match_threshold_buyout_success: float = 0.78
+    match_threshold_buyout_failed: float = 0.78
+    match_threshold_claim_car: float = 0.78
+    match_threshold_ah_landing: float = 0.80
+    match_threshold_sold: float = 0.70
     key_hold_ms: tuple = (10, 20)
     between_keys_ms: tuple = (10, 20)
     poll_interval_ms: tuple = (15, 30)
