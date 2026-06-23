@@ -65,6 +65,8 @@ Monitors the Auction House for the car you set, buys it instantly as soon as it 
 
 <img width="1386" height="763" alt="image-4" src="https://github.com/user-attachments/assets/fd2bf173-259f-4458-938b-2267144ce3ab" />
 <img width="1386" height="758" alt="image-5" src="https://github.com/user-attachments/assets/34f3fe88-9575-4ec5-aa6c-0c9e04a9964c" />
+<img width="1779" height="779" alt="20260623204520_1" src="https://github.com/user-attachments/assets/bd909d01-ffb3-4cee-9f21-c0a3ddc208da" />
+
 
 ---
 
