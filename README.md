@@ -105,7 +105,7 @@ Go back to FH6, press **F8** or **Start**, and let it run.
 
 To stop: press **F8** again, **F9** for emergency stop, or click **STOP** on the overlay.
 
-<img width="1916" height="971" alt="image-1" src="https://github.com/user-attachments/assets/2e4c412e-974e-4bf4-9d4d-bbc31fcd2432" />
+<img width="1916" height="971" alt="597772710-2e4c412e-974e-4bf4-9d4d-bbc31fcd2432" src="https://github.com/user-attachments/assets/66f7984f-c3a2-46a5-8f8d-cda4d8bd48b4" />
 
 ---
 
