@@ -5,30 +5,6 @@ Fully automated, 3x faster Auction House sniper bot. Monitors, instant-buys, and
 > **Note:** This is an updated and improved version of Frosty's FH6 Auction Sniper. It is completely unrelated to Frosty's paid V2.
 
 [![Need help? Join the Discord](https://img.shields.io/badge/Need_help%3F-Join_the_Discord-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/4fbQ7yNns8) 
----
-
-## 📣 Changelog V.2.2
-
-### 🔄 New Features
-* Added **Auto Refresh**, **Max Bid**, and **Max Buyout** to find more cars and prevent appears already ended auctions.
-* Added a **Diagnostic Mode** for matches to avoid blindly modifying thresholds when using different settings (like HDR or custom templates).
-* Embedded templates and new overlay fonts directly into the executable.
-
-### 🖥️ UI & Multi-Language Support
-* Rebuilt the interface from scratch to offer a much more detailed, intuitive, and comprehensive experience.
-* Added a **Customization Page** in the settings: you can now change the overlay language, select your in-game language, live resize the overlay, and change colors.
-* Four languages currently available: **English, Italian, Spanish and German**.
-
-### ⚡ Performance & Detection
-* Optimized overall performance; the tool is now significantly faster compared to V1.
-* Improved **"SOLD" stamp detection**: the tool will now successfully skip already sold cars without attempting to buy them.
-
-### ⚙️ Total Customization
-* Extensive code cleanup and removal of hardcoded limits. Every single parameter is now 100% customizable to perfectly match your PC's hardware and network latency.
-* Reworked and improved the **Keybinds** functionality.
-
-### 🛠️ Fixes & Improvements
-* Various code improvements and general bug fixes.
 
 ---
 
@@ -156,3 +132,30 @@ Windows SmartScreen will show a warning because the exe is not digitally signed.
 
 **When reporting bot-related issues** – include the Sniper.log file so I can analyze it. If the problem persists, [open an issue](https://github.com/d1ablo4L/AuctionSniper/issues)
 Or [Join the Discord!](https://discord.com/invite/4fbQ7yNns8).
+
+---
+
+## 📣 Changelog V.2.2
+
+### 🔄 New Features
+* Added **Auto Refresh**, **Max Bid**, and **Max Buyout** to find more cars and prevent appears already ended auctions.
+* Added a **Diagnostic Mode** for matches to avoid blindly modifying thresholds when using different settings (like HDR or custom templates).
+* Embedded templates and new overlay fonts directly into the executable.
+
+### 🖥️ UI & Multi-Language Support
+* Rebuilt the interface from scratch to offer a much more detailed, intuitive, and comprehensive experience.
+* Added a **Customization Page** in the settings: you can now change the overlay language, select your in-game language, live resize the overlay, and change colors.
+* Four languages currently available: **English, Italian, Spanish and German**.
+
+### ⚡ Performance & Detection
+* Optimized overall performance; the tool is now significantly faster compared to V1.
+* Improved **"SOLD" stamp detection**: the tool will now successfully skip already sold cars without attempting to buy them.
+
+### ⚙️ Total Customization
+* Extensive code cleanup and removal of hardcoded limits. Every single parameter is now 100% customizable to perfectly match your PC's hardware and network latency.
+* Reworked and improved the **Keybinds** functionality.
+
+### 🛠️ Fixes & Improvements
+* Various code improvements and general bug fixes.
+
+---
