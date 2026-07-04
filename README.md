@@ -159,4 +159,4 @@ Windows SmartScreen will show a warning because the exe is not digitally signed.
 
 **The bot gets lost on a screen and freezes** – restart FH6 and the bot. Make sure the graphics preset is **Very Low** and the resolution matches one of the supported options. Use **Diagnostic Mode** to check match thresholds if you run HDR or custom templates.
 
-**When reporting bot-related issues** – include the Sniper.log file so I can analyze it. If the problem persists, [open an issue](https://github.com/d1ablo4L/AuctionSniper/issues) Or Join the Discord! [![Need help? Join the Discord](https://img.shields.io/badge/Need_help%3F-Join_the_Discord-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/4fbQ7yNns8).
+**When reporting bot-related issues** – include the Sniper.log file so I can analyze it. If the problem persists, [open an issue](https://github.com/d1ablo4L/AuctionSniper/issues) Or Join the Discord! [![Need help? Join the Discord](https://img.shields.io/badge/Need_help%3F-Join_the_Discord-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/4fbQ7yNns8). 
