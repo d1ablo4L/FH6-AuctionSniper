@@ -1,6 +1,6 @@
 # 𖦏 AuctionSniper - V.2.2 - FH6
 ## Automatic sniper for the Forza Horizon 6 Auction House
-Fully automated, 3x faster Auction House sniper bot. Monitors, instant-buys, and claims cars on loop. ~30% success rate, securing snipes in under 2 mins.
+Fully automated, 3x faster Auction House sniper bot. Monitors, instant-buys, and claims cars on loop. ~50% success rate, securing snipes in under 2 mins.
 
 > **Note:** This is an updated and improved version of Frosty's FH6 Auction Sniper. It is completely unrelated to Frosty's paid V2.
 
