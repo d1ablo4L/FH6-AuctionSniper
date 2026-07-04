@@ -1,10 +1,10 @@
 # 𖦏 AuctionSniper - V.2.2
 
 > **Note:** This is an updated and improved version of Frosty's FH6 Auction Sniper. It is completely unrelated to Frosty's paid V2.
-
+[![Need help? Join the Discord](https://img.shields.io/badge/Need_help%3F-Join_the_Discord-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/4fbQ7yNns8) 
 ---
 
-## 📣 Changelog V.2.1
+## 📣 Changelog V.2.2
 
 ### 🔄 New Features
 * Added **Auto Refresh**, **Max Bid**, and **Max Buyout** to find more cars and prevent appears already ended auctions.
@@ -159,4 +159,5 @@ Windows SmartScreen will show a warning because the exe is not digitally signed.
 
 **The bot gets lost on a screen and freezes** – restart FH6 and the bot. Make sure the graphics preset is **Very Low** and the resolution matches one of the supported options. Use **Diagnostic Mode** to check match thresholds if you run HDR or custom templates.
 
-**When reporting bot-related issues** – include the Sniper.log file so I can analyze it. If the problem persists, [open an issue](https://github.com/d1ablo4L/AuctionSniper/issues) Or Join the Discord! [![Need help? Join the Discord](https://img.shields.io/badge/Need_help%3F-Join_the_Discord-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/4fbQ7yNns8). 
+**When reporting bot-related issues** – include the Sniper.log file so I can analyze it. If the problem persists, [open an issue](https://github.com/d1ablo4L/AuctionSniper/issues)
+Or [Join the Discord!](https://discord.com/invite/4fbQ7yNns8).
