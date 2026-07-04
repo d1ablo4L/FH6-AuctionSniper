@@ -1,4 +1,4 @@
-# 𖦏 AuctionSniper - V.2.1
+# 𖦏 AuctionSniper - V.2.2
 
 > **Note:** This is an updated and improved version of Frosty's FH6 Auction Sniper. It is completely unrelated to Frosty's paid V2.
 
