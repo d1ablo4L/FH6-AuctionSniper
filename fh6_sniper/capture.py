@@ -37,7 +37,6 @@ _set_dpi_awareness()
 
 CANON = (1920, 1080)
 _TARGET_RATIO = 16.0 / 9.0
-
 _CAPTURE_FPS_CAP = 60
 
 # ── Module state ──────────────────────────────────────────────────────────────

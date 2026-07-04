@@ -280,6 +280,13 @@ def sold_slots(scene_bgr, threshold=_SOLD_MATCH_DEFAULT) -> tuple:
     return tuple(_sold_score(gray, r) >= threshold for r in SOLD_STAMP_REGIONS)
 
 
+def sold_scores(scene_bgr) -> tuple:
+    """Raw SOLD-stamp match score (0..1) per card slot. Used to tell when the
+    results list has finished fading in (scores stop rising)."""
+    gray = _gray(scene_bgr)
+    return tuple(_sold_score(gray, r) for r in SOLD_STAMP_REGIONS)
+
+
 CARD_PANEL_REGIONS = (
     (320, 175, 900, 345),
     (320, 377, 900, 547),

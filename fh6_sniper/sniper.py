@@ -77,6 +77,9 @@ class GameIO:
         th = getattr(self.cfg, "match_threshold_sold", 0.70)
         return self._read("slot", lambda f: vision.first_buyable_slot(f, th))
 
+    def sold_scores(self) -> tuple:
+        return self._read("sold_scores", lambda f: vision.sold_scores(f))
+
     def press(self, name: str, times: int = 1) -> None:
         log.info("press %s%s", name, f" x{times}" if times > 1 else "")
         actions.tap_key(name, times,
@@ -102,6 +105,9 @@ class Sniper:
         self.started_at     = None
         self._stop = False
         self._jitter_up = True
+
+    _SETTLE_EPS = 0.03
+    _SETTLE_STABLE_FRAMES = 2
 
     def request_stop(self) -> None:
         self._stop = True
@@ -215,6 +221,36 @@ class Sniper:
                 return True
         log.info("enter_search: gave up after 4 attempts")
         return False
+
+    def _wait_results_settled(self, timeout=None) -> None:
+        if timeout is None:
+            timeout = getattr(self.cfg, "results_settle_s", 0.5)
+        if timeout <= 0:
+            return
+        t0 = self.clock()
+        deadline = t0 + timeout
+        try:
+            prev = self.io.sold_scores()
+        except Exception:
+            return
+        stable = 0
+        while self.clock() < deadline:
+            if self._stop:
+                return
+            if not self.io.await_new_frame(0.12):
+                continue
+            cur = self.io.sold_scores()
+            delta = max((abs(c - p) for c, p in zip(cur, prev)), default=0.0)
+            prev = cur
+            if delta <= self._SETTLE_EPS:
+                stable += 1
+                if stable >= self._SETTLE_STABLE_FRAMES:
+                    log.info("results settled in %.0f ms",
+                             (self.clock() - t0) * 1000)
+                    return
+            else:
+                stable = 0
+        log.info("results settle timeout (%.0f ms)", (self.clock() - t0) * 1000)
 
     def _navigate_to_confirm(self) -> bool:
         for _ in range(12):
@@ -384,6 +420,8 @@ class Sniper:
             self._back_to_landing(known=result)
             return "no_cars"
 
+        self._wait_results_settled()
+
         slot = self.io.first_buyable_slot()
         if slot == 0:
             self._status("All listings sold, skipping")
@@ -497,6 +535,8 @@ class Sniper:
             log.info("run_once outcome: %s", outcome)
             self.searches += 1
             if outcome == "recover_failed":
+                if self._stop:
+                    break
                 self._emit_stats()
                 self._status("Stopped: unable to recover")
                 return "recover_failed"

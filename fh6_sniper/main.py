@@ -74,6 +74,7 @@ def main() -> None:
         "thread": None,
         "display": {"searches": 0, "bought": 0, "fails": 0},
         "last_bot_stats": (0, 0, 0),
+        "carry_bought": 0,
     }
     purchase_log = paths.app_dir() / "logs" / "purchases.csv"
 
@@ -94,14 +95,18 @@ def main() -> None:
         if state["thread"] and state["thread"].is_alive():
             return
         capture.focus_window()
-        state["last_bot_stats"] = (0, 0, 0)     
+        carry = (state.get("carry_bought", 0)
+                 if getattr(cfg, "auto_stop_enabled", False) else 0)
+        state["last_bot_stats"] = (0, carry, 0)
         sniper = Sniper(io, cfg, on_purchase=on_purchase,
                         on_status=overlay.set_status,
                         on_stats=on_stats)
+        sniper.cars_bought = carry
 
         def _run_safe():
+            outcome = None
             try:
-                sniper.run()
+                outcome = sniper.run()
             except Exception:
                 logging.getLogger("fh6.main").exception(
                     "sniper thread crash")
@@ -110,6 +115,11 @@ def main() -> None:
                 except Exception:
                     pass
             finally:
+                state["carry_bought"] = (
+                    sniper.cars_bought
+                    if (outcome != "auto_stop"
+                        and getattr(cfg, "auto_stop_enabled", False))
+                    else 0)
                 capture.stop_capture()
                 if state.get("thread") is thread:
                     state["thread"] = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 import collections
 import ctypes
 import logging
+import math
 import sys
 import time
 import webbrowser
@@ -14,25 +15,37 @@ from .locales import tr
 
 # ── Color palette ───────────────────────────────────────────────────────────
 
-_PRIMARY   = "#FF0028"
-_SECONDARY = "#c40020"
-_TEXT_1    = "#f4f4f6"
-_TEXT_2    = "#7a3535"
-_BTN_BG    = "#0e0000"
-_BTN_FG    = "#FF0028"
-_BTN_HV    = "#2b0005"
+_PRIMARY   = "#C6F94A"
+_SECONDARY = "#F4A93B"
+_TEXT_1    = "#F4F6F8"
+_TEXT_2    = "#7E8A97"
+_STATUS_VAL = "#F4F6F8"
+_BTN_BG    = "#C6F94A"
+_BTN_FG    = "#0A0D12"
+_BTN_HV    = "#D4FB6E"
 
-_BG_HDR   = "#020000"
-_BG       = "#080000"
-_BG_MID   = "#0c0000"
-_CARD     = "#0e0000"
-_NAV_BG   = "#050000"
-_NAV_ACT  = "#170006"
-_DIVIDER  = "#2a0000"
+_BG_HDR   = "#070A0E"
+_BG       = "#0B0D11"
+_BG_MID   = "#13171D"
+_CARD     = "#161B22"
+_NAV_BG   = "#0B0D11"
+_NAV_ACT  = "#1B2129"
+_DIVIDER  = "#242B33"
 
-_TRACK    = "#3a2222"
-_SUCCESS  = "#1aa64b"
-_STATUSRED= "#ff4060"
+_TRACK    = "#2A323C"
+_GAUGE_TRACK = "#39434F"
+_SUCCESS  = "#C6F94A"
+_STATUSRED= "#FF5470"
+
+# Header panel
+_HEADER_BG = "#11161D"
+_TAB_BG    = "#080A0E"
+_TAB_HOVER = "#0E1218"
+
+# Muted START/STOP button
+_BTN_PAUSE_BG = "#1C232B"
+_BTN_PAUSE_FG = "#8A949E"
+_BTN_PAUSE_HV = "#222A33"
 
 _BORDER   = _PRIMARY
 _ROG      = _PRIMARY
@@ -166,6 +179,7 @@ def _load_fonts():
 # ── Live UI scale ────────────────────────────────────────────────────────────
 UI_SCALE_MIN, UI_SCALE_MAX = 0.7, 1.4
 _SCALE = 1.0
+_BASE_SCALE = 0.9
 
 
 def _set_scale(scale):
@@ -175,11 +189,17 @@ def _set_scale(scale):
 
 
 def px(n):
-    return max(1, round(n * _SCALE))
+    return max(1, round(n * _SCALE * _BASE_SCALE))
 
 
 def fs(n):
-    return max(10, round(n * _SCALE))
+    return max(9, round(n * _SCALE * _BASE_SCALE))
+
+
+GEO_PAGE_W = 404
+GEO_PAGE_H = 401
+GEO_GAUGE_H = 182
+GEO_GAUGE_RMAX = 128
 
 
 # ── Settings menu spec ───────────────────────────────────────────────────────
@@ -216,7 +236,7 @@ SETTINGS_SPEC = [
      "desc": "Threshold for the 'no auctions' screen. Recommended ~0.80 (matches strong)."},
     {"key": "match_threshold_sold", "label": "Match: SOLD stamp", "kind": "slider",
      "lo": 0.40, "hi": 0.95, "step": 0.01, "int": False,
-     "desc": "How strongly the SOLD stamp must match to skip a sold car. Lower if sold cars slip through; higher if it wrongly marks cars as sold. Recommended ~0.70."},
+     "desc": "Match for the SOLD stamp (skips sold cars). Recommended ~0.70."},
 
     ("section", "Match buy"),
     {"key": "match_threshold_auction_options", "label": "Match: Auction options", "kind": "slider",
@@ -227,10 +247,10 @@ SETTINGS_SPEC = [
      "desc": "Threshold for your own listing menu (sold cars). Recommended ~0.80 (matches strong)."},
     {"key": "match_threshold_buy_out", "label": "Match: Buy Out", "kind": "slider",
      "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
-     "desc": "Threshold for the Buy Out confirm screen. Moving background = matches WEAK, recommended ~0.60. Higher makes the buyout stall."},
+     "desc": "Buy Out confirm screen. Recommended ~0.60 (weak match)."},
     {"key": "match_threshold_buyout_progress", "label": "Match: Buyout progress", "kind": "slider",
      "lo": 0.50, "hi": 0.95, "step": 0.01, "int": False,
-     "desc": "Threshold for the buyout 'in progress' screen. Moving background = matches WEAK, recommended ~0.60."},
+     "desc": "Buyout 'in progress' screen. Recommended ~0.60 (weak match)."},
 
     ("section", "Match collect"),
     {"key": "match_threshold_buyout_success", "label": "Match: Buyout success", "kind": "slider",
@@ -256,10 +276,10 @@ SETTINGS_SPEC = [
     ("section", "Behavior"),
     {"key": "jitter_maxbid", "label": "Update Max Bid", "kind": "toggle",
      "exclusive_group": "jitter_field",
-     "desc": "Before every search, nudges Max Bid by \u00b11 (moves up 2 rows) to refresh the list and avoid already-sold cars. Turning this on switches off Max Buyout."},
+     "desc": "Nudges Max Bid by 1 before each search to refresh the list. Turns off Max Buyout."},
     {"key": "jitter_maxbuyout", "label": "Update Max Buyout", "kind": "toggle",
      "exclusive_group": "jitter_field",
-     "desc": "Same as above but acts on Max Buyout (moves up 1 row). Turning this on switches off Max Bid. If both are off, the price is not updated."},
+     "desc": "Same, but on Max Buyout. Turns off Max Bid."},
     {"key": "collect_after_buyout", "label": "Collect after buyout", "kind": "toggle",
      "desc": "Immediately collects the car you bought (slower but automatic)."},
     {"key": "notify_sound", "label": "Notification sound", "kind": "toggle",
@@ -267,14 +287,17 @@ SETTINGS_SPEC = [
     {"key": "notify_toast", "label": "Windows notification", "kind": "toggle",
      "desc": "Windows toast notification on every purchase."},
     {"key": "overlay_capturable", "label": "Show overlay in captures", "kind": "toggle",
-     "desc": "Turn this on ONLY to take screenshots: with this on the overlay becomes visible in captures/screenshots, but it may cover the screen areas the tool reads to work. Keep it off while the sniper is running."},
+     "desc": "Makes the overlay visible in captures (for screenshots only). Keep off while sniping."},
     {"key": "match_score_logging", "label": "Diagnostic Mode", "kind": "toggle",
-     "desc": "Logs the real match score of all 12 thresholds (11 screens + SOLD) for every frame to logs/match_diag.log, to help you calibrate the match thresholds. Slightly slower; keep it off during normal sniping."},
+     "desc": "Logs all match scores to logs/match_diag.log for calibration. Keep off while sniping."},
 
     ("section", "Safety"),
     {"key": "timeout_results_s", "label": "Results timeout (s)", "kind": "slider",
      "lo": 2, "hi": 30, "step": 0.5, "int": False,
      "desc": "Maximum wait for results after a search."},
+    {"key": "results_settle_s", "label": "Results settle timeout (s)", "kind": "slider",
+     "lo": 0.0, "hi": 2.0, "step": 0.05, "int": False,
+     "desc": "Wait for the SOLD stamps to finish fading in. 0 = off."},
     {"key": "timeout_outcome_s", "label": "Outcome timeout (s)", "kind": "slider",
      "lo": 5, "hi": 60, "step": 1, "int": False,
      "desc": "Maximum wait for the purchase outcome."},
@@ -303,8 +326,8 @@ SETTINGS_SPEC = [
      "desc": "Change the interface language. Applies live."},
     {"key": "game_language", "label": "Game language", "kind": "dropdown",
      "options": "languages",
-     "desc": "The language Forza Horizon 6 runs in. The tool matches the "
-             "on-screen templates for this language."},
+     "desc": "The language Forza Horizon 6 runs in (matches the on-screen templates)."
+             ""},
 
     ("section", "Customization Appearance"),
     {"key": "ui_scale", "label": "UI scale", "kind": "slider",
@@ -316,6 +339,14 @@ SETTINGS_SPEC = [
      "desc": "Click, then press the key you want. Applies live. (Esc cancels.)"},
     {"key": "hotkey_panic", "label": "Panic key", "kind": "keybind",
      "desc": "Stops the bot and closes the tool. Click, then press a key. Applies live."},
+]
+
+SETTINGS_CATS = [
+    ("Speed",    ["Speed", "Safety"]),
+    ("Matching", ["Match search", "Match buy", "Match collect"]),
+    ("Behavior", ["Behavior", "Auto-stop"]),
+    ("Custom",   ["Customization Language", "Customization Appearance",
+                  "Customization Keybinds"]),
 ]
 
 SECTION_GROUPS = {
@@ -332,15 +363,6 @@ NAV = [
     ("help",     "help",     "Help"),
     ("about",    "info",     "Info"),
 ]
-
-
-def _child_label(name: str) -> str:
-    for g in SECTION_GROUPS:
-        if name.startswith(g + " "):
-            return name[len(g) + 1:].capitalize()
-    return name
-
-
 def _fmt(val, is_int):
     if val is None:
         return ""
@@ -435,6 +457,8 @@ def _shift_value(c, dv):
 COLOR_ROLES = [
     ("color_primary",   "Primary",        "Main accent.",          _PRIMARY),
     ("color_secondary", "Secondary",      "Paused bar and dot.",   _SECONDARY),
+    ("color_status_values", "Status values", "Active-time & searches value.",
+                                                                    _STATUS_VAL),
     ("color_text_dim",  "Secondary text", "Dim text.",             _TEXT_2),
     ("color_btn_bg",    "Button",         "Button background.",    _BTN_BG),
     ("color_btn_fg",    "Button text",    "Button label.",         _BTN_FG),
@@ -448,10 +472,10 @@ _COLOR_DEFAULTS = {k: d for k, _l, _d, d in COLOR_ROLES}
 
 
 def _apply_theme_from_cfg(cfg):
-    global _PRIMARY, _SECONDARY, _TEXT_2, _BTN_BG, _BTN_FG, _BTN_HV
-    global _BORDER, _ROG, _DIM, _FAINT
+    global _PRIMARY, _SECONDARY, _TEXT_1, _TEXT_2, _BTN_BG, _BTN_FG, _BTN_HV
+    global _BORDER, _ROG, _DIM, _FAINT, _STATUS_VAL
     global _BG, _BG_HDR, _BG_MID, _NAV_BG, _CARD, _NAV_ACT
-    global _TRACK, _DIVIDER
+    global _TRACK, _DIVIDER, _HEADER_BG, _TAB_BG, _TAB_HOVER, _GAUGE_TRACK
 
     def role(key):
         val = getattr(cfg, key, None) if cfg is not None else None
@@ -461,6 +485,8 @@ def _apply_theme_from_cfg(cfg):
 
     _PRIMARY   = role("color_primary")
     _SECONDARY = role("color_secondary")
+    _TEXT_1    = "#F4F6F8"
+    _STATUS_VAL = role("color_status_values")
     _TEXT_2    = role("color_text_dim")
     _BTN_BG    = role("color_btn_bg")
     _BTN_FG    = role("color_btn_fg")
@@ -470,9 +496,13 @@ def _apply_theme_from_cfg(cfg):
     _BG_HDR  = _color_to_css(_shift_value(_bg_base, -0.0235))
     _NAV_BG  = _color_to_css(_shift_value(_bg_base, -0.0118))
     _BG_MID  = _color_to_css(_shift_value(_bg_base,  0.0157))
+    _HEADER_BG = _color_to_css(_shift_value(_bg_base,  0.0275))
+    _TAB_BG    = _color_to_css(_shift_value(_bg_base, -0.0180))
+    _TAB_HOVER = _color_to_css(_shift_value(_bg_base,  0.0120))
     _CARD    = role("color_card")
     _NAV_ACT = role("color_nav_active")
     _TRACK = _DIVIDER = role("color_control")
+    _GAUGE_TRACK = _color_to_css(_shift_value(_parse_color(_TRACK), 0.0700))
     _BORDER  = _ROG = _PRIMARY
     _DIM     = _FAINT = _TEXT_2
 
@@ -513,6 +543,7 @@ class Icon(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         c = _qc(self._color)
         w = self.width()
         pen = QtGui.QPen(c, max(1.5, w * 0.09))
@@ -532,6 +563,14 @@ class Icon(QtWidgets.QWidget):
             p.drawLine(QtCore.QLineF(cx, cy + gap, cx, cy + R))
             p.drawLine(QtCore.QLineF(cx - R, cy, cx - gap, cy))
             p.drawLine(QtCore.QLineF(cx + R, cy, cx + gap, cy))
+        elif n == "scope":
+            cx = cy = w / 2.0
+            R = (w - 2 * m) / 2.0
+            ring = R * 0.72
+            outer = R * 1.04
+            p.drawEllipse(QtCore.QPointF(cx, cy), ring, ring)
+            p.drawLine(QtCore.QLineF(cx, cy - outer, cx, cy + outer))
+            p.drawLine(QtCore.QLineF(cx - outer, cy, cx + outer, cy))
         elif n == "settings":
             ys = (w * 0.30, w * 0.5, w * 0.70)
             knobs = (0.66, 0.36, 0.58)
@@ -546,14 +585,12 @@ class Icon(QtWidgets.QWidget):
                 p.drawLine(int(m), int(y), int(w - m), int(y))
         elif n == "help":
             p.drawEllipse(r)
-            f = QtGui.QFont(_UI, int(w * 0.42))
-            f.setBold(True)
+            f = _mkfont(int(w * 0.42))
             p.setFont(f)
             p.drawText(self.rect(), Qt.AlignCenter, "?")
         elif n == "info":
             p.drawEllipse(r)
-            f = QtGui.QFont(_UI, int(w * 0.46))
-            f.setBold(True)
+            f = _mkfont(int(w * 0.46))
             p.setFont(f)
             p.drawText(self.rect(), Qt.AlignCenter, "i")
         elif n == "close":
@@ -573,13 +610,6 @@ class HoverIcon(Icon):
 
     def leaveEvent(self, _e):
         self.set_color(self._base)
-
-
-class _Cover(QtWidgets.QWidget):
-    def paintEvent(self, _e):
-        p = QtGui.QPainter(self)
-        p.fillRect(self.rect(), _qc(_BG))
-        p.end()
 
 
 # ── Toggle switch (animated pill) ────────────────────────────────────────────
@@ -627,6 +657,7 @@ class ToggleSwitch(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         track = _qc(_ROG if self._value else _TRACK)
         p.setBrush(track)
@@ -660,10 +691,6 @@ class Slider(QtWidgets.QWidget):
     def get(self):
         return self._value
 
-    def set_value(self, v):
-        self._value = _coerce(v, self._lo, self._hi, self._step, self._int)
-        self.update()
-
     def _x0(self):
         return self._knob / 2 + 1
 
@@ -694,6 +721,7 @@ class Slider(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         cy = self.height() / 2
         x0 = self._x0()
         tw = self._tw()
@@ -713,62 +741,6 @@ class Slider(QtWidgets.QWidget):
         p.setBrush(_qc(_ROG))
         p.drawEllipse(QtCore.QPointF(kx, cy), self._knob / 2, self._knob / 2)
         p.end()
-
-
-# ── Animated state bar ───────────────────────────────────────────────────────
-class StateBar(QtWidgets.QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._H = px(10)
-        self.setFixedHeight(self._H)
-        self._state = "idle"
-        self._accent = _ROG
-        self._phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.setInterval(33)
-        self._timer.timeout.connect(self._advance)
-
-    def set_state(self, state):
-        if state == self._state:
-            return
-        self._state = state
-        if state in ("running", "paused"):
-            self._accent = _ROG if state == "running" else _SECONDARY
-            self._phase = 0.0
-            if not self._timer.isActive():
-                self._timer.start()
-        else:
-            self._timer.stop()
-        self.update()
-
-    def _advance(self):
-        self._phase += 0.018
-        if self._phase > 1.3:
-            self._phase = -0.3
-        self.update()
-
-    def paintEvent(self, _e):
-        p = QtGui.QPainter(self)
-        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        w, h = self.width(), self.height()
-        if self._state not in ("running", "paused"):
-            return
-        path = QtGui.QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, w, h), h / 2, h / 2)
-        p.setClipPath(path)
-        p.fillRect(self.rect(), _qc(_BG_MID))
-        center = self._phase * w
-        band = w * 0.45
-        grad = QtGui.QLinearGradient(center - band, 0, center + band, 0)
-        mid = _qc(_BG_MID)
-        acc = _qc(self._accent)
-        grad.setColorAt(0.0, mid)
-        grad.setColorAt(0.5, acc)
-        grad.setColorAt(1.0, mid)
-        p.fillRect(self.rect(), grad)
-        p.end()
-
-
 # ── Pill button ──────────────────────────────────────────────────────────────
 class PillButton(QtWidgets.QWidget):
     def __init__(self, text, command=None, height=None, base=_BTN_BG,
@@ -807,14 +779,305 @@ class PillButton(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         p.setBrush(_qc(self._cur))
         p.setPen(Qt.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, w, h), px(12), px(12))
-        f = QtGui.QFont(_UI, fs(13))
-        f.setBold(True)
+        p.drawRoundedRect(QRectF(0, 0, w, h), px(14), px(14))
+        f = _mkfont(fs(13))
         p.setFont(f)
         p.setPen(_qc(self._fg))
+        p.drawText(self.rect(), Qt.AlignCenter, self._text)
+        p.end()
+
+
+# ── Small status dot ─────────────────────────────────────────────────────────
+class Dot(QtWidgets.QWidget):
+    def __init__(self, color=_DIM, size=10, parent=None):
+        super().__init__(parent)
+        self._c = color
+        self.setFixedSize(size, size)
+
+    def set_color(self, c):
+        if c != self._c:
+            self._c = c
+            self.update()
+
+    def paintEvent(self, _e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        p.setBrush(_qc(self._c))
+        p.setPen(Qt.NoPen)
+        m = px(1)
+        p.drawEllipse(QRectF(m, m, self.width() - 2 * m, self.height() - 2 * m))
+        p.end()
+
+
+# ── Semicircle gauge (speedometer) ───────────────────────────────────────────
+class Gauge(QtWidgets.QWidget):
+    _SPAN = 184.0
+    _START = 90.0 + _SPAN / 2.0
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._frac = 0.0
+        self._frac_target = 0.0
+        self._frac_ready = False
+        self._accent = _GAUGE_TRACK
+        self._word = tr("IDLE")
+        self._word_color = _DIM
+        self._time = "00:00"
+        self._caption = tr("ACTIVE TIME")
+        self.setFixedHeight(px(GEO_GAUGE_H))
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                           QtWidgets.QSizePolicy.Fixed)
+        self._frac_anim = QTimer(self)
+        self._frac_anim.setInterval(16)
+        self._frac_anim.timeout.connect(self._anim_step)
+
+    def set_fraction(self, f):
+        f = max(0.0, min(1.0, float(f)))
+        if not self._frac_ready:
+            self._frac = self._frac_target = f
+            self._frac_ready = True
+            self.update()
+            return
+        if abs(f - self._frac_target) < 1e-4:
+            return
+        self._frac_target = f
+        if not self._frac_anim.isActive():
+            self._frac_anim.start()
+
+    def _anim_step(self):
+        d = self._frac_target - self._frac
+        if abs(d) <= 0.004:
+            self._frac = self._frac_target
+            self._frac_anim.stop()
+        else:
+            self._frac += d * 0.22
+        self.update()
+
+    def set_accent(self, color):
+        if color != self._accent:
+            self._accent = color
+            self.update()
+
+    def set_word(self, word, color):
+        self._word, self._word_color = word, color
+        self.update()
+
+    def set_time(self, t):
+        if t != self._time:
+            self._time = t
+            self.update()
+
+    def _geom(self):
+        w, h = self.width(), self.height()
+        margin = px(10)
+        thick = px(13)
+        dip = max(0.0, math.sin(math.radians(self._SPAN / 2.0 - 90.0)))
+        r_w = w / 2.0 - margin - thick * 1.4
+        r_h = (h - margin - thick) / (1.0 + dip)
+        R = max(px(28), min(r_w, r_h, float(px(GEO_GAUGE_RMAX))))
+        cx = w / 2.0
+        cy = margin + thick / 2.0 + R
+        return cx, cy, R, thick
+
+    def paintEvent(self, _e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        cx, cy, R, thick = self._geom()
+        rect = QRectF(cx - R, cy - R, 2 * R, 2 * R)
+
+        track = QtGui.QPen(_qc(_GAUGE_TRACK), thick)
+        track.setCapStyle(Qt.RoundCap)
+        p.setPen(track)
+        p.drawArc(rect, int(self._START * 16), int(-self._SPAN * 16))
+
+        lit = (self._frac > 0.001
+               and self._accent not in (_TRACK, _GAUGE_TRACK))
+        if lit and self._accent != _DIM:
+            span16 = int(-self._SPAN * self._frac * 16)
+            for wmul, alpha in ((2.35, 28), (1.65, 52)):
+                gc = _qc(self._accent)
+                gc.setAlpha(alpha)
+                gp = QtGui.QPen(gc, thick * wmul)
+                gp.setCapStyle(Qt.RoundCap)
+                p.setPen(gp)
+                p.drawArc(rect, int(self._START * 16), span16)
+        if self._frac > 0.001:
+            fill = QtGui.QPen(_qc(self._accent), thick)
+            fill.setCapStyle(Qt.RoundCap)
+            p.setPen(fill)
+            p.drawArc(rect, int(self._START * 16),
+                      int(-self._SPAN * self._frac * 16))
+
+        n = 6
+        pen_off = QtGui.QPen(_qc(_GAUGE_TRACK), max(1, px(2)))
+        pen_off.setCapStyle(Qt.RoundCap)
+        pen_on = QtGui.QPen(_qc(self._accent), max(1, px(2)))
+        pen_on.setCapStyle(Qt.RoundCap)
+        for i in range(n):
+            a = self._START - self._SPAN * (i / (n - 1))
+            ar = math.radians(a)
+            r1, r2 = R - thick * 0.62, R - thick * 1.45
+            p.setPen(pen_on if (lit and self._frac + 1e-6 >= i / (n - 1))
+                     else pen_off)
+            p.drawLine(QtCore.QPointF(cx + r1 * math.cos(ar),
+                                      cy - r1 * math.sin(ar)),
+                       QtCore.QPointF(cx + r2 * math.cos(ar),
+                                      cy - r2 * math.sin(ar)))
+
+        # state word
+        wf = _mkfont(fs(12))
+        wf.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, px(2))
+        p.setFont(wf)
+        p.setPen(_qc(self._word_color))
+        self._centered(p, cy - R * 0.46, self._word)
+
+        # big time (shrink a little when hours push it to HH:MM:SS)
+        p.setFont(_mkfont(fs(24) if len(self._time) > 5 else fs(31)))
+        p.setPen(_qc(_STATUS_VAL))
+        self._centered(p, cy - R * 0.10, self._time)
+
+        # caption
+        cf = _mkfont(fs(9))
+        cf.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, px(1))
+        p.setFont(cf)
+        p.setPen(_qc(_DIM))
+        self._centered(p, cy + R * 0.20, self._caption)
+        p.end()
+
+    def _centered(self, p, ycenter, text):
+        fm = p.fontMetrics()
+        h = fm.height()
+        rect = QRect(0, int(round(ycenter - h / 2.0)), self.width(), h)
+        p.drawText(rect, Qt.AlignCenter, text)
+
+
+# ── Top tab button ───────────────────────────────────────────────────────────
+def _mkfont(pt, bold=True):
+    f = QtGui.QFont(_UI, int(pt))
+    f.setBold(bold)
+    f.setHintingPreference(QtGui.QFont.PreferFullHinting)
+    return f
+
+
+def _fit_font(text, max_pt, avail_w, pad, bold=True):
+    pt = int(max_pt)
+    while pt > 7:
+        f = _mkfont(pt, bold)
+        if QtGui.QFontMetrics(f).horizontalAdvance(text) <= max(1, avail_w - pad):
+            return f
+        pt -= 1
+    return _mkfont(7, bold)
+
+
+class TabButton(QtWidgets.QWidget):
+    def __init__(self, text, on_click=None, parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._on_click = on_click
+        self._active = False
+        self._hover = False
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(px(32))
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                           QtWidgets.QSizePolicy.Fixed)
+        self.setMinimumWidth(px(34))
+
+    def set_active(self, a):
+        if a != self._active:
+            self._active = a
+            self.update()
+
+    def enterEvent(self, _e):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, _e):
+        self._hover = False
+        self.update()
+
+    def mousePressEvent(self, e):
+        e.accept()
+        if self._on_click:
+            self._on_click()
+
+    def mouseMoveEvent(self, e):
+        e.accept()
+
+    def paintEvent(self, _e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        w, h = self.width(), self.height()
+        rad = h / 2.0
+        if self._active:
+            p.setBrush(_qc(_PRIMARY))
+            p.setPen(Qt.NoPen)
+            p.drawRoundedRect(QRectF(0, 0, w, h), rad, rad)
+            fg = _qc(_BTN_FG)
+        else:
+            fg = _qc(_PRIMARY if self._hover else _DIM)
+        p.setFont(_fit_font(self._text, fs(12), w, px(10)))
+        p.setPen(fg)
+        p.drawText(self.rect(), Qt.AlignCenter, self._text)
+        p.end()
+
+
+# ── Settings sub-category button ──────────────────────
+class SubTabButton(QtWidgets.QWidget):
+    def __init__(self, text, width=None, on_click=None, parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._on_click = on_click
+        self._active = False
+        self._hover = False
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(px(24))
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                           QtWidgets.QSizePolicy.Fixed)
+        self.setMinimumWidth(px(28))
+
+    def set_active(self, a):
+        if a != self._active:
+            self._active = a
+            self.update()
+
+    def enterEvent(self, _e):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, _e):
+        self._hover = False
+        self.update()
+
+    def mousePressEvent(self, e):
+        e.accept()
+        if self._on_click:
+            self._on_click()
+
+    def mouseMoveEvent(self, e):
+        e.accept()
+
+    def paintEvent(self, _e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        w, h = self.width(), self.height()
+        rad = h / 2.0
+        if self._active:
+            p.setBrush(_qc(_PRIMARY))
+            p.setPen(Qt.NoPen)
+            p.drawRoundedRect(QRectF(0, 0, w, h), rad, rad)
+            fg = _qc(_BTN_FG)
+        else:
+            fg = _qc(_PRIMARY if self._hover else _DIM)
+        p.setFont(_fit_font(self._text, fs(10), w, px(6)))
+        p.setPen(fg)
         p.drawText(self.rect(), Qt.AlignCenter, self._text)
         p.end()
 
@@ -843,99 +1106,6 @@ class _Bridge(QObject):
     stats = Signal(int, int, int)
     logmsg = Signal(str)
     quit = Signal()
-
-
-# ── Nav row ──────────────────────────────────────────────────────────────────
-class NavRow(QtWidgets.QWidget):
-    def __init__(self, label, icon=None, indent=0, on_click=None,
-                 height=None, compact=False, parent=None):
-        super().__init__(parent)
-        self._active = False
-        self._hover = False
-        self._on_click = on_click
-        self._icon = icon
-        self._fit_px = fs(13)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(height or px(44))
-        lay = QtWidgets.QHBoxLayout(self)
-        lay.setSpacing(px(8))
-        self._lbl = QtWidgets.QLabel(label)
-        self._lbl.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
-                                QtWidgets.QSizePolicy.Preferred)
-        self._lbl.setMinimumWidth(0)
-        self._lbl.setStyleSheet(
-            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{self._fit_px}px;"
-            "font-weight:bold; background:transparent;")
-        if compact:
-            lay.setContentsMargins(0, 0, 0, 0)
-            lay.addStretch(1)
-            if icon is not None:
-                lay.addWidget(icon, 0, Qt.AlignCenter)
-            lay.addStretch(1)
-            self._lbl.hide()
-        else:
-            lay.setContentsMargins(px(14) + indent, 0, px(8), 0)
-            if icon is not None:
-                lay.addWidget(icon, 0, Qt.AlignVCenter)
-            lay.addWidget(self._lbl, 1)
-
-    def set_active(self, active):
-        self._active = active
-        self._refresh()
-
-    def _refresh(self):
-        hot = self._active or self._hover
-        self._lbl.setStyleSheet(
-            f"color:{_ROG if hot else _DIM}; font-family:'Sora','Segoe UI';"
-            f"font-size:{self._fit_px}px; font-weight:bold; background:transparent;")
-        if self._icon is not None:
-            self._icon.set_color(_ROG if hot else _DIM)
-        self.update()
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._fit_font()
-
-    def _fit_font(self):
-        if self._lbl.isHidden():
-            return
-        avail = self._lbl.width()
-        if avail <= 0:
-            return
-        base, floor = fs(13), fs(9)
-        f = QtGui.QFont()
-        f.setFamilies(["Sora", "Segoe UI"])
-        f.setBold(True)
-        size = base
-        while size > floor:
-            f.setPixelSize(size)
-            if QtGui.QFontMetrics(f).horizontalAdvance(self._lbl.text()) <= avail:
-                break
-            size -= 1
-        if size != self._fit_px:
-            self._fit_px = size
-            self._refresh()
-
-    def enterEvent(self, _e):
-        self._hover = True
-        self._refresh()
-
-    def leaveEvent(self, _e):
-        self._hover = False
-        self._refresh()
-
-    def mousePressEvent(self, _e):
-        if self._on_click:
-            self._on_click()
-
-    def paintEvent(self, _e):
-        p = QtGui.QPainter(self)
-        if self._active:
-            p.fillRect(self.rect(), _qc(_NAV_ACT))
-            p.fillRect(QRect(0, 0, px(3), self.height()), _qc(_ROG))
-        p.end()
-
-
 # ── Colour picker ────────────────────────────────────────────────────────────
 def _paint_checker(p, rect, cell=None):
     cell = cell or px(6)
@@ -979,6 +1149,7 @@ class ColorButton(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rad = px(8)
         path = QtGui.QPainterPath()
@@ -1032,13 +1203,14 @@ class _DropdownItem(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         hot = self._hover or self._selected
         if hot:
             path = QtGui.QPainterPath()
             path.addRoundedRect(
                 QRectF(0, 0, self.width(), self.height()), px(6), px(6))
             p.fillPath(path, _qc(_NAV_ACT))
-        p.setFont(QtGui.QFont(_UI, fs(13)))
+        p.setFont(_mkfont(fs(13), False))
         p.setPen(_qc(_ROG if hot else _DIM))
         p.drawText(self.rect(), Qt.AlignCenter, self._label)
         p.end()
@@ -1096,10 +1268,6 @@ class Dropdown(QtWidgets.QWidget):
     def get(self):
         return self._value
 
-    def set_value(self, value):
-        self._value = str(value)
-        self.update()
-
     def _label(self):
         for v, lbl in self._options:
             if v == self._value:
@@ -1139,12 +1307,13 @@ class Dropdown(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rad = px(8)
         path = QtGui.QPainterPath()
         path.addRoundedRect(QRectF(0, 0, w, h), rad, rad)
         p.fillPath(path, _qc(_CARD))
-        f = QtGui.QFont(_UI, fs(13))
+        f = _mkfont(fs(13), False)
         p.setFont(f)
         p.setPen(_qc(_DIM))
         p.drawText(QRectF(px(28), 0, w - px(56), h),
@@ -1276,10 +1445,6 @@ class KeybindButton(QtWidgets.QWidget):
     def get(self):
         return self._value
 
-    def set_value(self, value):
-        self._value = str(value or "")
-        self.update()
-
     def _start_capture(self):
         if self._capturing:
             return
@@ -1332,6 +1497,7 @@ class KeybindButton(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rad = px(8)
         path = QtGui.QPainterPath()
@@ -1343,10 +1509,11 @@ class KeybindButton(QtWidgets.QWidget):
         p.drawPath(path)
         if self._capturing:
             text, col = "Press a key\u2026", _ROG
-            f = QtGui.QFont(_UI, fs(12))
+            f = _mkfont(fs(12), False)
         else:
             text, col = hotkey_label(self._value), _DIM
             f = QtGui.QFont(_MONO, fs(13))
+            f.setHintingPreference(QtGui.QFont.PreferFullHinting)
         p.setFont(f)
         p.setPen(_qc(col))
         p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, text)
@@ -1381,6 +1548,7 @@ class _SVField(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rect = QRectF(0, 0, w, h)
         path = QtGui.QPainterPath()
@@ -1436,6 +1604,7 @@ class _HueBar(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rect = QRectF(0, 0, w, h)
         path = QtGui.QPainterPath()
@@ -1488,6 +1657,7 @@ class _AlphaBar(QtWidgets.QWidget):
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
         w, h = self.width(), self.height()
         rect = QRectF(0, 0, w, h)
         path = QtGui.QPainterPath()
@@ -1516,9 +1686,11 @@ class ColorPickerPopup(QtWidgets.QWidget):
         self._committed = False
         self._guard = False
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool
-                            | Qt.WindowStaysOnTopHint)
+                            | Qt.WindowStaysOnTopHint
+                            | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
 
         col = _parse_color(value)
         h, s, v, a = col.getHsvF()
@@ -1659,32 +1831,52 @@ class ColorPickerPopup(QtWidgets.QWidget):
 
     def show_at(self, anchor_widget):
         self.adjustSize()
-        g = anchor_widget.mapToGlobal(QPoint(0, 0))
-        aw = anchor_widget.width()
-        pw, ph = self.width(), self.sizeHint().height()
-        scr = (QtWidgets.QApplication.screenAt(g)
-               or QtWidgets.QApplication.primaryScreen())
-        av = scr.availableGeometry()
-        x = g.x() - pw - px(10)
-        if x < av.left() + 8:
-            x = g.x() + aw + px(10)
-        x = max(av.left() + 8, min(x, av.right() - pw - 8))
-        y = g.y()
-        y = max(av.top() + 8, min(y, av.bottom() - ph - 8))
-        self.move(int(x), int(y))
+        self._anchor = anchor_widget
+        self._owner = anchor_widget.window()
+        self.setWindowOpacity(0.0)
+        self._place(nudge_owner=True)
         self.show()
         self.raise_()
-        self.activateWindow()
+        QtCore.QTimer.singleShot(0, lambda: self.setWindowOpacity(1.0))
         QtWidgets.QApplication.instance().installEventFilter(self)
+    def _place(self, nudge_owner=False):
+        win = getattr(self, "_owner", None)
+        anchor = getattr(self, "_anchor", None)
+        if win is None or anchor is None:
+            return
+        wg = win.frameGeometry()
+        g = anchor.mapToGlobal(QPoint(0, 0))
+        pw, ph = self.width(), self.sizeHint().height()
+        scr = (QtWidgets.QApplication.screenAt(wg.center())
+               or QtWidgets.QApplication.primaryScreen())
+        av = scr.availableGeometry()
+        overlap = px(10)
+        x = wg.right() - overlap
+        if x + pw > av.right() - 4:
+            if nudge_owner:
+                shift = (x + pw) - (av.right() - 4)
+                nx = max(av.left() + 4, wg.left() - shift)
+                win.move(int(nx), wg.top())
+                wg = win.frameGeometry()
+                x = wg.right() - overlap
+            if x + pw > av.right() - 4:
+                x = wg.left() + overlap - pw
+        x = max(av.left() + 4, min(x, av.right() - pw - 4))
+        y = g.y() - px(4)
+        y = max(av.top() + 4, min(y, av.bottom() - ph - 4))
+        self.move(int(x), int(y))
 
     def eventFilter(self, _obj, ev):
         if ev.type() == QtCore.QEvent.MouseButtonPress:
+            if QtWidgets.QApplication.activePopupWidget() is not None:
+                return False
             try:
                 gp = ev.globalPosition().toPoint()
             except Exception:
                 gp = ev.globalPos()
-            if not self.frameGeometry().contains(gp):
-                QtCore.QTimer.singleShot(0, self._commit_and_close)
+            if self.frameGeometry().contains(gp):
+                return False
+            QtCore.QTimer.singleShot(0, self._dismiss)
         return False
 
     def keyPressEvent(self, e):
@@ -1727,7 +1919,6 @@ class Overlay:
         self._toggle_cb = None
 
         self._page = "status"
-        self._cur_section = None
         self._status_src = "ready to start"
         self._status_kwargs = {}
         self._settings_open = True
@@ -1736,12 +1927,18 @@ class Overlay:
         self._excl_group = {}
         self._sec_index = {}
         self._value_labels = {}
-        self._nav_rows = {}
-        self._sec_rows = {}
         self._logs = collections.deque(maxlen=300)
         self._running = False
         self._active = False
+        self._bought_n = 0
+        self._autostop_done = False
+        self._gauge = None
         self._started = None
+        self._elapsed_base = 0.0
+        self._segment_start = None
+        self._was_running = False
+        self._subbar_open = False
+        self._settings_cat = None
         self._ready = False
         self._drag_off = None
         self._autosave_timer = None
@@ -1784,12 +1981,8 @@ class Overlay:
         self._win.setWindowTitle("AuctionSniper - V.2")
         self._win.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self._win.setAttribute(Qt.WA_TranslucentBackground, False)
-        self._win.setAttribute(Qt.WA_NoSystemBackground, False)
-        self._win.setAutoFillBackground(True)
-        _wp = self._win.palette()
-        _wp.setColor(QtGui.QPalette.Window, _qc(_BG))
-        self._win.setPalette(_wp)
+        self._win.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._win.setAttribute(Qt.WA_NoSystemBackground, True)
         self._win.closeEvent = self._on_close_event
 
         self._bridge = _Bridge()
@@ -1810,43 +2003,31 @@ class Overlay:
 
     # ── UI construction ──────────────────────────────────────────────────
     def _build_ui(self):
-        outer = QtWidgets.QVBoxLayout(self._win)
-        outer.setContentsMargins(0, 0, 0, 0)
+        self._PAGE_W = px(GEO_PAGE_W)
+        self._PAGE_H = px(GEO_PAGE_H)
 
-        self._frame = QtWidgets.QFrame()
+        outer = QtWidgets.QVBoxLayout(self._win)
+        outer.setContentsMargins(px(8), px(8), px(8), px(8))
+
+        self._frame = QtWidgets.QFrame(self._win)
         self._frame.setObjectName("frame")
         self._frame.setStyleSheet(
-            f"#frame{{background:{_BG}; border:1px solid {_BORDER};}}")
-        outer.addWidget(self._frame)
+            f"#frame{{background:{_BG}; border-radius:{px(18)}px;}}")
+        self._frame.setFixedWidth(self._PAGE_W + px(20))
+        outer.addWidget(self._frame, 0, Qt.AlignHCenter)
 
         root = QtWidgets.QVBoxLayout(self._frame)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        strip = QtWidgets.QFrame()
-        strip.setFixedHeight(px(3))
-        strip.setStyleSheet(f"background:{_ROG};")
-        root.addWidget(strip)
+        root.setContentsMargins(px(10), px(10), px(10), px(6))
+        root.setSpacing(px(10))
 
         root.addWidget(self._build_header())
 
-        body = QtWidgets.QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        self._rail = QtWidgets.QFrame()
-        self._rail.setStyleSheet(f"background:{_NAV_BG};")
-        self._rail_lay = QtWidgets.QVBoxLayout(self._rail)
-        self._rail_lay.setContentsMargins(0, px(10), 0, px(10))
-        self._rail_lay.setSpacing(px(2))
-        body.addWidget(self._rail)
-
         self._content = QtWidgets.QWidget()
-        self._content.setStyleSheet(f"background:{_BG};")
+        self._content.setStyleSheet("background:transparent;")
         self._content_lay = QtWidgets.QVBoxLayout(self._content)
         self._content_lay.setContentsMargins(0, 0, 0, 0)
         self._content_lay.setSpacing(0)
-        body.addWidget(self._content, 0)
-        root.addLayout(body, 1)
+        root.addWidget(self._content, 1)
 
         self._pages = {
             "status": self._build_status_page(),
@@ -1859,301 +2040,271 @@ class Overlay:
             w.setParent(self._content)
             w.hide()
         self._page_in_holder = None
-        self._wide_h = None
+        self._wide_h = 0
 
         self._toast_timer = QTimer(self._win)
         self._toast_timer.setSingleShot(True)
         self._toast_timer.timeout.connect(self._toast.hide)
 
-        self._rebuild_rail()
         self._select_page(self._page, refit=False)
 
-        old_cov = getattr(self, "_cover", None)
-        if old_cov is not None:
-            old_cov.deleteLater()
-        self._cover = _Cover(self._win)
-        self._cover.hide()
-        self._win.resizeEvent = self._on_win_resize
-
-    def _on_win_resize(self, _e):
-        cov = getattr(self, "_cover", None)
-        if cov is None:
-            return
-        if cov.isVisible():
-            w = max(self._win.width(), cov.width())
-            h = max(self._win.height(), cov.height())
-            cov.setGeometry(0, 0, w, h)
-        else:
-            cov.setGeometry(0, 0, self._win.width(), self._win.height())
 
     def _build_header(self):
-        head = QtWidgets.QFrame()
-        head.setStyleSheet(f"background:{_BG_HDR};")
-        head.mousePressEvent = self._drag_start
-        head.mouseMoveEvent = self._drag_move
-        lay = QtWidgets.QHBoxLayout(head)
-        lay.setContentsMargins(px(14), px(9), px(10), px(9))
-        lay.setSpacing(px(6))
-        logo = Icon("status", color=_ROG, size=px(26))
+        card = QtWidgets.QFrame()
+        card.setObjectName("hcard")
+        card.setStyleSheet(
+            f"#hcard{{background:{_HEADER_BG}; border-radius:{px(16)}px;}}")
+        card.mousePressEvent = self._drag_start
+        card.mouseMoveEvent = self._drag_move
+        v = QtWidgets.QVBoxLayout(card)
+        v.setContentsMargins(px(13), px(11), px(13), px(12))
+        v.setSpacing(px(12))
+
+        top = QtWidgets.QHBoxLayout()
+        top.setSpacing(px(7))
+        logo = Icon("scope", color=_ROG, size=px(26))
         logo.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        lay.addWidget(logo)
+        lglow = QtWidgets.QGraphicsDropShadowEffect(logo)
+        lglow.setOffset(0, 0)
+        lglow.setBlurRadius(px(14))
+        lcol = _qc(_ROG)
+        lcol.setAlpha(170)
+        lglow.setColor(lcol)
+        lglow.setEnabled(False)
+        logo.setGraphicsEffect(lglow)
+        self._logo_glow = lglow
+        top.addWidget(logo)
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(0)
         title = QtWidgets.QLabel(
-            f"<span style='color:{_DIM}'>Auction</span>"
-            f"<span style='color:{_ROG}'>Sniper</span>")
+            f"<span style='color:{_DIM}'>Auction</span>")
         title.setTextFormat(Qt.RichText)
         title.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         title.setStyleSheet(
             "font-family:'Sora','Segoe UI';"
             f"font-size:{fs(18)}px; font-weight:bold; background:transparent;")
-        lay.addWidget(title)
-        badge = QtWidgets.QLabel("V2.1")
-        badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setFixedHeight(px(15))
-        badge.setStyleSheet(
-            f"background:{_ROG}; color:#ffffff; font-family:'Sora','Segoe UI';"
-            f"font-size:{fs(8)}px; font-weight:bold; border-radius:{px(3)}px;"
-            f"padding:0px {px(4)}px;")
-        lay.addWidget(badge)
-        lay.addSpacing(px(8))
+        title_row.addWidget(title)
+        sniper = QtWidgets.QLabel("Sniper")
+        sniper.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        sniper.setStyleSheet(
+            f"color:{_PRIMARY}; font-family:'Sora','Segoe UI';"
+            f"font-size:{fs(18)}px; font-weight:bold; background:transparent;")
+        glow = QtWidgets.QGraphicsDropShadowEffect(sniper)
+        glow.setOffset(0, 0)
+        glow.setBlurRadius(px(16))
+        gcol = _qc(_PRIMARY)
+        gcol.setAlpha(170)
+        glow.setColor(gcol)
+        sniper.setGraphicsEffect(glow)
+        title_row.addWidget(sniper)
+        top.addLayout(title_row)
+        top.addSpacing(px(6))
         self._toast = QtWidgets.QLabel(tr("Saved \u2713"))
         self._toast.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._toast.setStyleSheet(
             f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(11)}px;"
             "font-weight:bold; background:transparent;")
         self._toast.hide()
-        lay.addWidget(self._toast)
-        lay.addStretch(1)
+        top.addWidget(self._toast)
+        top.addStretch(1)
+        info = HoverIcon("info", color=_DIM, hover=_ROG, size=px(20))
+        info.setCursor(Qt.PointingHandCursor)
+        info.mousePressEvent = lambda _e: self._nav_click("about")
+        top.addWidget(info)
+        top.addSpacing(px(10))
         close = HoverIcon("close", color=_DIM, hover=_ROG, size=px(18))
         close.setCursor(Qt.PointingHandCursor)
         close.mousePressEvent = lambda _e: self._win.close()
-        lay.addWidget(close)
+        top.addWidget(close)
+        v.addLayout(top)
+
+        v.addLayout(self._build_tab_row())
         self._dot = logo
-        return head
+        return card
+    def _build_subbar_row(self):
+        holder = QtWidgets.QWidget()
+        holder.setStyleSheet("background:transparent;")
+        h = QtWidgets.QHBoxLayout(holder)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(px(2))
+        self._subcat_btns = {}
+        for label, _secs in SETTINGS_CATS:
+            b = SubTabButton(tr(label),
+                             on_click=lambda c=label: self._sub_click(c))
+            b.set_active(label == self._settings_cat)
+            h.addWidget(b, 1)
+            self._subcat_btns[label] = b
+        return holder
 
-    # ── Rail ──────────────────────────────────────────────────────────────
-    def _rail_entries(self):
-        entries = []
-        emitted_group = set()
-        for spec in SETTINGS_SPEC:
-            if not (isinstance(spec, tuple) and spec[0] == "section"):
+    def _update_subbar(self):
+        sb = getattr(self, "_subbar", None)
+        if sb is None:
+            return
+        vis = (self._page == "settings" and self._subbar_open)
+        was = sb.isVisible()
+        if was == vis:
+            for c, b in getattr(self, "_subcat_btns", {}).items():
+                b.set_active(c == self._settings_cat)
+            return
+        self._win.setUpdatesEnabled(False)
+        try:
+            sb.setVisible(vis)
+            for c, b in getattr(self, "_subcat_btns", {}).items():
+                b.set_active(c == self._settings_cat)
+            self._fixed_win_size = None
+        finally:
+            self._win.setUpdatesEnabled(True)
+        self._apply_page_geometry()
+
+    def _sub_click(self, cat):
+        if cat == self._settings_cat:
+            return
+        self._settings_cat = cat
+        for c, b in getattr(self, "_subcat_btns", {}).items():
+            b.set_active(c == cat)
+        self._populate_settings()
+        sc = getattr(self, "_settings_scroll", None)
+        if sc is not None:
+            sc.verticalScrollBar().setValue(0)
+
+    # ── Tabs  ─────────────────────────────────────
+    def _build_tab_row(self):
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        bar = QtWidgets.QFrame()
+        bar.setObjectName("tabbar")
+        bar.setStyleSheet(
+            f"#tabbar{{background:{_TAB_BG}; border-radius:{px(18)}px;}}")
+        bar.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                          QtWidgets.QSizePolicy.Fixed)
+        bv = QtWidgets.QVBoxLayout(bar)
+        bv.setContentsMargins(px(4), px(4), px(4), px(4))
+        bv.setSpacing(px(4))
+        mr = QtWidgets.QHBoxLayout()
+        mr.setContentsMargins(0, 0, 0, 0)
+        mr.setSpacing(px(2))
+        self._tab_btns = {}
+        for key, _icon, label in NAV:
+            if key == "about":
                 continue
-            name = spec[1]
-            grp = _CHILD_TO_GROUP.get(name)
-            if grp:
-                if grp not in emitted_group:
-                    emitted_group.add(grp)
-                    entries.append(("group", grp))
-                if self._group_expanded.get(grp):
-                    entries.append(("sub", name))
-            else:
-                entries.append(("section", name))
-        return entries
-
-    def _rebuild_rail(self):
-        while self._rail_lay.count():
-            it = self._rail_lay.takeAt(0)
-            w = it.widget()
-            if w is not None:
-                w.deleteLater()
-        self._nav_rows = {}
-        self._sec_rows = {}
-        self._rail_lay.setContentsMargins(0, px(10), 0, px(10))
-        self._rail_lay.setSpacing(px(2))
-        wide = (self._page != "status")
-        self._rail.setFixedWidth(px(150) if wide else px(64))
-
-        settings_expanded = (self._page == "settings" and self._settings_open)
-        for key, icon_name, label in NAV:
             if key == "settings" and self._cfg is None:
                 continue
-            ic = Icon(icon_name, color=_DIM, size=px(32))
-            if key == "settings":
-                cb = self._on_settings_nav
-            else:
-                cb = (lambda k=key: self._nav_click(k))
-            row = NavRow(tr(label), icon=ic, on_click=cb, height=px(46),
-                         compact=not wide)
-            row.set_active(self._page == key)
-            self._rail_lay.addWidget(row)
-            self._nav_rows[key] = row
-            if key == "settings" and settings_expanded:
-                for kind, name in self._rail_entries():
-                    if kind == "group":
-                        gr = NavRow(tr(name), indent=px(22),
-                                    on_click=lambda g=name: self._toggle_group(g),
-                                    height=px(40))
-                        gr.set_active(self._cur_section in SECTION_GROUPS.get(name, []))
-                        self._rail_lay.addWidget(gr)
-                        self._sec_rows["group:" + name] = gr
-                    elif kind == "sub":
-                        sr = NavRow(tr(_child_label(name)), indent=px(40),
-                                    on_click=lambda n=name: self._show_section(n),
-                                    height=px(38))
-                        sr.set_active(self._cur_section == name)
-                        self._rail_lay.addWidget(sr)
-                        self._sec_rows[name] = sr
-                    else:
-                        sr = NavRow(tr(name), indent=px(22),
-                                    on_click=lambda n=name: self._show_section(n),
-                                    height=px(40))
-                        sr.set_active(self._cur_section == name)
-                        self._rail_lay.addWidget(sr)
-                        self._sec_rows[name] = sr
-        self._rail_lay.addStretch(1)
+            tb = TabButton(tr(label), on_click=lambda k=key: self._nav_click(k))
+            tb.set_active(self._page == key)
+            mr.addWidget(tb, 1)
+            self._tab_btns[key] = tb
+        bv.addLayout(mr)
+        self._subbar = self._build_subbar_row()
+        bv.addWidget(self._subbar)
+        self._subbar.setVisible(self._page == "settings" and self._subbar_open)
+        row.addWidget(bar, 1)
+        return row
+
+    def _refresh_tabs(self):
+        for key, tb in getattr(self, "_tab_btns", {}).items():
+            tb.set_active(self._page == key)
 
     def _nav_click(self, key):
+        if key == "settings" and self._page == "settings":
+            self._subbar_open = not self._subbar_open
+            if self._subbar_open:
+                if not self._settings_cat:
+                    self._settings_cat = SETTINGS_CATS[0][0]
+                self._populate_settings()
+            self._update_subbar()
+            return
         if key == self._page:
             return
+        if key == "settings":
+            self._subbar_open = True
+            if not self._settings_cat:
+                self._settings_cat = SETTINGS_CATS[0][0]
+            self._populate_settings()
         self._select_page(key)
-
-    def _on_settings_nav(self):
-        if self._page == "settings":
-            self._settings_open = not self._settings_open
-            self._rebuild_rail()
-            self._apply_page_geometry()
-        else:
-            self._settings_open = True
-            self._select_page("settings")
-
-    def _refresh_rail_active(self):
-        for key, row in self._nav_rows.items():
-            row.set_active(self._page == key)
-        for name, row in self._sec_rows.items():
-            if name.startswith("group:"):
-                g = name.split(":", 1)[1]
-                row.set_active(self._cur_section in SECTION_GROUPS.get(g, []))
-            else:
-                row.set_active(self._cur_section == name)
-
-    def _distribute_nav_compact(self):
-        if self._page != "status":
-            return
-        keys = [k for k, _, _ in NAV
-                if not (k == "settings" and self._cfg is None)]
-        rows = [self._nav_rows[k] for k in keys if k in self._nav_rows]
-        n = len(rows)
-        if n < 2 or not hasattr(self, "_btn"):
-            return
-        try:
-            item_h = rows[0].height()
-            rail_top = self._rail.mapTo(self._frame, QPoint(0, 0)).y()
-            y0 = self._phase_lbl.mapTo(
-                self._frame, QPoint(0, self._phase_lbl.height() // 2)).y()
-            sy = self._btn.mapTo(
-                self._frame, QPoint(0, self._btn.height() // 2)).y()
-        except Exception:
-            return
-        if sy <= y0:
-            return
-        center_gap = (sy - y0) / (n - 1)
-        spacing = int(round(center_gap - item_h))
-        spacing = max(px(2), spacing)
-        top = int(round(y0 - rail_top - item_h / 2))
-        top = max(0, top)
-        m = self._rail_lay.contentsMargins()
-        self._rail_lay.setContentsMargins(m.left(), top, m.right(), m.bottom())
-        self._rail_lay.setSpacing(spacing)
-        self._win.layout().activate()
-
-    def _toggle_group(self, group):
-        self._group_expanded[group] = not self._group_expanded.get(group, False)
-        if self._group_expanded[group]:
-            kids = SECTION_GROUPS.get(group, [])
-            if kids:
-                self._cur_section = kids[0]
-                self._sec_stack.setCurrentIndex(self._sec_index[kids[0]])
-                self._settings_sub.setText(tr(_child_label(kids[0])))
-        self._rebuild_rail()
-        self._apply_page_geometry()
 
     # ── Pages ──────────────────────────────────────────────────────────────
     def _build_status_page(self):
         page = QtWidgets.QWidget()
-        page.setFixedWidth(px(330))
+        page.setFixedSize(self._PAGE_W, self._PAGE_H)
         lay = QtWidgets.QVBoxLayout(page)
-        lay.setContentsMargins(px(10), px(12), px(10), px(18))
+        lay.setContentsMargins(px(6), px(2), px(6), px(4))
         lay.setSpacing(0)
 
-        line = QtWidgets.QHBoxLayout()
-        line.setSpacing(px(6))
-        self._phase_lbl = QtWidgets.QLabel(tr("IDLE"))
+        self._gauge = Gauge()
+        lay.addWidget(self._gauge)
+        lay.addSpacing(px(4))
+
+        phase_row = QtWidgets.QHBoxLayout()
+        phase_row.setSpacing(px(7))
+        phase_row.addStretch(1)
+        self._phase_dot = Dot(color=_DIM, size=px(9))
+        self._phase_lbl = QtWidgets.QLabel(tr("Idle"))
         self._phase_lbl.setStyleSheet(
-            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(15)}px;"
+            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
             "font-weight:bold; background:transparent;")
-        sep = QtWidgets.QLabel("/")
-        sep.setStyleSheet(f"color:{_DIVIDER}; font-size:{fs(12)}px; background:transparent;")
-        self._status_lbl = QtWidgets.QLabel(tr("ready to start"))
-        self._status_lbl.setStyleSheet(
-            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(10)}px; background:transparent;")
-        line.addWidget(self._phase_lbl)
-        line.addWidget(sep)
-        line.addWidget(self._status_lbl)
-        line.addStretch(1)
-        lay.addLayout(line)
+        phase_row.addWidget(self._phase_dot)
+        phase_row.addWidget(self._phase_lbl)
+        phase_row.addStretch(1)
+        lay.addLayout(phase_row)
+        lay.addSpacing(px(16))
 
-        self._bar = StateBar()
-        lay.addSpacing(px(10))
-        lay.addWidget(self._bar)
-        lay.addSpacing(px(14))
-
-        grid = QtWidgets.QGridLayout()
-        grid.setHorizontalSpacing(px(9))
-        grid.setVerticalSpacing(px(9))
+        cards = QtWidgets.QHBoxLayout()
+        cards.setSpacing(px(9))
         cells = (
             ("BOUGHT", "_bought", _IT_GREEN),
-            ("SEARCHES", "_searches", _ROG),
+            ("SEARCHES", "_searches", _STATUS_VAL),
             ("FAILED", "_fails", _RED_STAT),
-            ("ACTIVE TIME", "_time", _ROG),
         )
-        for i, (caption, attr, color) in enumerate(cells):
-            r, c = divmod(i, 2)
+        for caption, attr, color in cells:
             card = QtWidgets.QFrame()
             card.setStyleSheet(f"background:{_CARD}; border-radius:{px(16)}px;")
             cl = QtWidgets.QVBoxLayout(card)
-            cl.setContentsMargins(px(14), px(12), px(14), px(12))
-            cl.setSpacing(px(2))
-            val = QtWidgets.QLabel("00:00" if attr == "_time" else "0")
-            val.setStyleSheet(
-                f"color:{color}; font-family:'Sora','Segoe UI'; font-size:{fs(21)}px;"
-                "font-weight:bold; background:transparent;")
+            cl.setContentsMargins(px(8), px(11), px(8), px(11))
+            cl.setSpacing(px(3))
             cap = QtWidgets.QLabel(tr(caption))
+            cap.setAlignment(Qt.AlignCenter)
             cap.setStyleSheet(
                 f"color:{_FAINT}; font-family:'Sora','Segoe UI'; font-size:{fs(9)}px;"
                 "font-weight:bold; background:transparent;")
-            cl.addWidget(val)
+            val = QtWidgets.QLabel("0")
+            val.setAlignment(Qt.AlignCenter)
+            val.setStyleSheet(
+                f"color:{color}; font-family:'Sora','Segoe UI'; font-size:{fs(22)}px;"
+                "font-weight:bold; background:transparent;")
             cl.addWidget(cap)
-            card.setMinimumHeight(px(88))
-            grid.addWidget(card, r, c)
+            cl.addWidget(val)
+            card.setMinimumHeight(px(74))
+            cards.addWidget(card, 1)
             self._value_labels[attr] = val
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        lay.addLayout(grid)
+        lay.addLayout(cards)
 
-        lay.addSpacing(px(15))
+        lay.addSpacing(px(16))
         self._btn = PillButton(tr("START"), base=_BTN_BG, hover=_BTN_HV, fg=_BTN_FG)
         lay.addWidget(self._btn)
 
-        lay.addSpacing(px(12))
-        start = hotkey_label(getattr(self._cfg, "hotkey_start_stop", "<f8>")
-                             if self._cfg is not None else "<f8>")
+        lay.addStretch(1)
+        lay.addSpacing(px(4) + px(6) + px(8))
+        start_k = hotkey_label(getattr(self._cfg, "hotkey_start_stop", "<f8>")
+                               if self._cfg is not None else "<f8>")
         panic = hotkey_label(getattr(self._cfg, "hotkey_panic", "<f9>")
                              if self._cfg is not None else "<f9>")
         footer = QtWidgets.QLabel(
-            f"{start}  {tr('start / stop')}      \u00b7      {panic}  {tr('panic / quit')}")
+            f"{start_k}  {tr('start / stop')}      \u00b7      {panic}  {tr('panic / quit')}")
         footer.setObjectName("hotkeyFooter")
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet(
             f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(10)}px; background:transparent;")
         self._hotkey_footer = footer
-        lay.addWidget(footer)
+        lay.addWidget(footer, 0, Qt.AlignHCenter)
         lay.addStretch(1)
         return page
 
     def _page_header(self, lay, title, subtitle):
         t = QtWidgets.QLabel(tr(title))
         t.setStyleSheet(
-            f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(26)}px;"
+            f"color:{_PRIMARY}; font-family:'Sora','Segoe UI'; font-size:{fs(26)}px;"
             "font-weight:bold; background:transparent;")
         lay.addWidget(t)
         sub = QtWidgets.QLabel(tr(subtitle) if subtitle else "")
@@ -2165,49 +2316,131 @@ class Overlay:
 
     def _build_settings_page(self):
         page = QtWidgets.QWidget()
-        page.setFixedWidth(px(600))
+        page.setFixedSize(self._PAGE_W, self._PAGE_H)
         lay = QtWidgets.QVBoxLayout(page)
-        lay.setContentsMargins(px(10), px(12), px(10), px(18))
-        lay.setSpacing(px(2))
+        lay.setContentsMargins(px(6), px(2), px(6), px(8))
+        lay.setSpacing(px(6))
+        self._sec_index = {}
         if self._cfg is None:
+            self._settings_sub = self._page_header(lay, "Settings", "")
             msg = QtWidgets.QLabel(tr("Settings unavailable."))
             msg.setStyleSheet(f"color:{_DIM}; font-size:{fs(10)}px;")
             lay.addWidget(msg)
             lay.addStretch(1)
             return page
 
-        self._settings_sub = self._page_header(lay, "Settings", "")
-        lay.addSpacing(px(20))
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{background:transparent; width:0px; margin:0;}"
+            "QScrollBar::handle:vertical{background:transparent;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{"
+            "background:transparent;}")
+        self._settings_scroll = scroll
+        inner = QtWidgets.QWidget()
+        inner.setStyleSheet("background:transparent;")
+        il = QtWidgets.QVBoxLayout(inner)
+        il.setContentsMargins(0, 0, px(2), 0)
+        il.setSpacing(px(9))
+        self._settings_inner_lay = il
+        self._populate_settings()
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+        return page
 
-        self._sec_stack = QtWidgets.QStackedWidget()
-        lay.addWidget(self._sec_stack, 1)
+    def _populate_settings(self):
+        il = getattr(self, "_settings_inner_lay", None)
+        if il is None:
+            return
+        while il.count():
+            item = il.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        self._setting_widgets = {}
+        self._excl_group = {}
+        self._sec_index = {}
+        self._autostop_dependent = []
 
-        sections = []
+        self._settings_sub = self._page_header(il, "Settings", "")
+        il.addSpacing(px(4))
+
+        ordered = []
+        secmap = {}
         cur = None
         for spec in SETTINGS_SPEC:
             if isinstance(spec, tuple) and spec[0] == "section":
                 cur = (spec[1], [])
-                sections.append(cur)
+                ordered.append(cur)
+                secmap[spec[1]] = cur[1]
             else:
                 if cur is None:
-                    cur = ("General", [])
-                    sections.append(cur)
+                    cur = (None, [])
+                    ordered.append(cur)
                 cur[1].append(spec)
 
-        for name, specs in sections:
-            sec = QtWidgets.QWidget()
-            sl = QtWidgets.QVBoxLayout(sec)
-            sl.setContentsMargins(0, 0, 0, 0)
-            sl.setSpacing(px(16))
-            for spec in specs:
-                sl.addWidget(self._add_setting_row(spec))
-            sl.addStretch(1)
-            self._sec_index[name] = self._sec_stack.addWidget(sec)
+        filtered = bool(self._subbar_open and self._settings_cat)
+        if filtered:
+            cat_secs = []
+            for label, secs in SETTINGS_CATS:
+                if label == self._settings_cat:
+                    cat_secs = secs
+                    break
+            plan = [(name, secmap.get(name, [])) for name in cat_secs]
+        else:
+            plan = ordered
 
-        if sections:
-            self._cur_section = sections[0][0]
-            self._settings_sub.setText(tr(_child_label(sections[0][0])))
-        return page
+        for name, specs in plan:
+            if name is not None:
+                il.addWidget(self._settings_section_header(name))
+            for sp in specs:
+                card = self._settings_card(sp)
+                il.addWidget(card)
+                if isinstance(sp, dict) and sp.get("key") in (
+                        "max_cars", "max_minutes"):
+                    self._autostop_dependent.append(card)
+        il.addStretch(1)
+        self._update_autostop_rows(
+            bool(getattr(self._cfg, "auto_stop_enabled", False))
+            if self._cfg is not None else False)
+
+    def _update_autostop_rows(self, enabled):
+        for card in getattr(self, "_autostop_dependent", []):
+            try:
+                card.setVisible(bool(enabled))
+            except Exception:
+                pass
+
+    def _settings_section_header(self, name):
+        wrap = QtWidgets.QWidget()
+        wrap.setStyleSheet("background:transparent;")
+        v = QtWidgets.QVBoxLayout(wrap)
+        v.setContentsMargins(px(4), px(8), 0, px(0))
+        v.setSpacing(0)
+        lbl = QtWidgets.QLabel(tr(name).upper())
+        lbl.setStyleSheet(
+            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(11)}px;"
+            "font-weight:bold; background:transparent;")
+        v.addWidget(lbl)
+        return wrap
+
+    def _settings_card(self, spec):
+        if spec.get("kind") == "note":
+            return self._add_setting_row(spec)
+        card = QtWidgets.QFrame()
+        card.setObjectName("scard")
+        card.setStyleSheet(
+            f"#scard{{background:{_CARD}; border-radius:{px(14)}px;}}")
+        cl = QtWidgets.QVBoxLayout(card)
+        cl.setContentsMargins(px(14), px(12), px(14), px(12))
+        cl.setSpacing(0)
+        cl.addWidget(self._add_setting_row(spec))
+        return card
 
     def _add_setting_row(self, spec):
         if spec.get("kind") == "note":
@@ -2218,17 +2451,18 @@ class Overlay:
             if spec.get("label"):
                 lab = QtWidgets.QLabel(tr(spec["label"]))
                 lab.setStyleSheet(
-                    f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(14)}px;"
+                    f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
                     "font-weight:bold; background:transparent;")
                 v.addWidget(lab)
             if spec.get("desc"):
                 d = QtWidgets.QLabel(tr(spec["desc"]))
                 d.setWordWrap(True)
                 d.setStyleSheet(
-                    f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
+                    f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(12)}px;"
                     " background:transparent;")
                 v.addWidget(d)
             return row
+
         key, kind = spec["key"], spec["kind"]
         cur = getattr(self._cfg, key, None)
         row = QtWidgets.QWidget()
@@ -2237,29 +2471,27 @@ class Overlay:
         h.setSpacing(px(12))
 
         left = QtWidgets.QVBoxLayout()
-        left.setSpacing(px(2))
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(px(3))
         lab = QtWidgets.QLabel(tr(spec["label"]))
         lab.setWordWrap(True)
         lab.setStyleSheet(
-            f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(14)}px;"
+            f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
             "font-weight:bold; background:transparent;")
         desc = QtWidgets.QLabel(tr(spec["desc"]))
         desc.setWordWrap(True)
         desc.setStyleSheet(
-            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px; background:transparent;")
+            f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(12)}px;"
+            " background:transparent;")
         left.addWidget(lab)
         left.addWidget(desc)
         left_box = QtWidgets.QWidget()
         left_box.setLayout(left)
-        left_box.setFixedWidth(px(308))
-        h.addWidget(left_box, 0, Qt.AlignTop)
-        h.addStretch(1)
+        h.addWidget(left_box, 1)
 
-        ctrl = QtWidgets.QVBoxLayout()
-        ctrl.setSpacing(px(4))
-        ctrl.setAlignment(Qt.AlignTop | Qt.AlignRight)
-        slider_w = px(160)
-        ctrl_w = px(26) + px(6) + slider_w + px(6) + px(46)
+        slider_w = px(104)
+        ctrl_w = px(150)
+        control = None
 
         if kind == "toggle":
             grp = spec.get("exclusive_group")
@@ -2272,45 +2504,45 @@ class Overlay:
                             ow.set(False)
                 if k == "overlay_capturable":
                     self._set_capturable(v)
+                if k == "auto_stop_enabled":
+                    self._update_autostop_rows(v)
                 self._autosave()
             tg = ToggleSwitch(value=bool(cur), command=cmd)
-            wrap = QtWidgets.QWidget()
-            wrap.setFixedWidth(ctrl_w)
-            wl = QtWidgets.QHBoxLayout(wrap)
-            wl.setContentsMargins(0, 0, 0, 0)
-            wl.addStretch(1)
-            wl.addWidget(tg)
-            ctrl.addWidget(wrap, 0, Qt.AlignRight)
+            control = tg
             self._setting_widgets[key] = ("toggle", tg)
             if grp:
                 self._excl_group[key] = grp
 
         elif kind == "slider":
-            ctrl.addWidget(self._make_slider_line(
-                key, cur, spec, slider_w, tag=""), 0, Qt.AlignRight)
+            control = self._make_slider_line(key, cur, spec, slider_w, tag="")
             self._setting_widgets[key] = ("slider", self._last_slider)
 
         elif kind == "range":
             lo_cur, hi_cur = (cur if isinstance(cur, (tuple, list))
                               else (spec["lo"], spec["hi"]))
+            box = QtWidgets.QWidget()
+            bl = QtWidgets.QVBoxLayout(box)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setSpacing(px(5))
             sliders = []
             for sub, sval in (("min", lo_cur), ("max", hi_cur)):
-                ctrl.addWidget(self._make_slider_line(
-                    key + ":" + sub, sval, spec, slider_w, tag=sub),
-                    0, Qt.AlignRight)
+                line = self._make_slider_line(
+                    key + ":" + sub, sval, spec, slider_w, tag=sub)
+                bl.addWidget(line)
                 sliders.append(self._last_slider)
+            control = box
             self._setting_widgets[key] = ("range", tuple(sliders))
 
         elif kind == "text":
             ent = QtWidgets.QLineEdit("" if cur is None else str(cur))
             ent.setFixedWidth(ctrl_w)
             ent.setStyleSheet(
-                f"background:{_CARD}; color:{_ROG}; border:1px solid {_DIVIDER};"
-                f"border-radius:{px(4)}px; padding:{px(4)}px; font-family:'Sora','Segoe UI';"
+                f"background:{_BG}; color:{_TEXT_1}; border:1px solid {_DIVIDER};"
+                f"border-radius:{px(6)}px; padding:{px(5)}px; font-family:'Sora','Segoe UI';"
                 f"font-size:{fs(13)}px;")
             ent.textEdited.connect(lambda _t: self._autosave_soon())
             ent.editingFinished.connect(self._autosave)
-            ctrl.addWidget(ent, 0, Qt.AlignRight)
+            control = ent
             self._setting_widgets[key] = ("text", ent)
 
         elif kind == "color":
@@ -2320,7 +2552,7 @@ class Overlay:
                 on_open=lambda b, k=key, d=default_hex:
                     self._open_color_picker(k, b, d),
                 width=ctrl_w)
-            ctrl.addWidget(btn, 0, Qt.AlignRight)
+            control = btn
             self._setting_widgets[key] = ("color", btn)
 
         elif kind == "keybind":
@@ -2329,7 +2561,7 @@ class Overlay:
                 on_capture=lambda v, k=key: self._on_keybind_captured(k, v),
                 on_active=self._on_keybind_capture_active,
                 width=ctrl_w)
-            ctrl.addWidget(btn, 0, Qt.AlignRight)
+            control = btn
             self._setting_widgets[key] = ("keybind", btn)
 
         elif kind == "dropdown":
@@ -2345,51 +2577,53 @@ class Overlay:
             else:
                 on_change = lambda _v: self._autosave()
             dd = Dropdown(cur, opts, on_change=on_change, width=ctrl_w)
-            ctrl.addWidget(dd, 0, Qt.AlignRight)
+            control = dd
             self._setting_widgets[key] = ("dropdown", dd)
 
-        h.addLayout(ctrl)
+        if control is not None:
+            h.addWidget(control, 0, Qt.AlignVCenter)
         return row
 
     def _make_slider_line(self, vkey, value, spec, slider_w, tag=""):
         cont = QtWidgets.QWidget()
-        cont.setFixedWidth(px(46) + px(6) + slider_w + px(6) + px(26))
         line = QtWidgets.QHBoxLayout(cont)
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(px(6))
+        if tag:
+            tg = QtWidgets.QLabel(tag)
+            tg.setFixedWidth(px(22))
+            tg.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            tg.setStyleSheet(
+                f"color:{_DIM}; font-size:{fs(10)}px; background:transparent;")
+            line.addWidget(tg)
         vlab = QtWidgets.QLabel(_fmt(value, spec["int"]))
-        vlab.setFixedWidth(px(46))
+        vlab.setFixedWidth(px(40))
         vlab.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         vlab.setStyleSheet(
             f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
             "font-weight:bold; background:transparent;")
-        tg = QtWidgets.QLabel(tag)
-        tg.setFixedWidth(px(26))
-        tg.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        tg.setStyleSheet(f"color:{_DIM}; font-size:{fs(11)}px; background:transparent;")
         sl = Slider(value, spec["lo"], spec["hi"], spec["step"], spec["int"],
                     slider_w,
                     on_change=lambda v, lb=vlab, i=spec["int"], k=vkey:
                         self._on_slider_change(lb, v, i, k))
-        line.addWidget(vlab)
         line.addWidget(sl)
-        line.addWidget(tg)
+        line.addWidget(vlab)
         self._last_slider = sl
         return cont
 
     def _build_logs_page(self):
         page = QtWidgets.QWidget()
-        page.setFixedWidth(px(600))
+        page.setFixedSize(self._PAGE_W, self._PAGE_H)
         lay = QtWidgets.QVBoxLayout(page)
-        lay.setContentsMargins(px(10), px(12), px(10), px(18))
+        lay.setContentsMargins(px(6), px(2), px(6), px(8))
         lay.setSpacing(px(8))
         self._page_header(lay, "Logs", "Safe to share: no keys or personal data.")
 
         bar = QtWidgets.QHBoxLayout()
         self._log_filter = QtWidgets.QLineEdit()
         self._log_filter.setStyleSheet(
-            f"background:{_CARD}; color:{_ROG}; border:1px solid {_DIVIDER};"
-            f"border-radius:{px(4)}px; padding:{px(3)}px; font-family:'Sora','Segoe UI';"
+            f"background:{_BG}; color:{_TEXT_1}; border:1px solid {_DIVIDER};"
+            f"border-radius:{px(8)}px; padding:{px(5)}px; font-family:'Sora','Segoe UI';"
             f"font-size:{fs(12)}px;")
         self._log_filter.textChanged.connect(self._render_logs)
         bar.addWidget(self._log_filter, 1)
@@ -2403,6 +2637,8 @@ class Overlay:
 
         self._log_text = QtWidgets.QPlainTextEdit()
         self._log_text.setReadOnly(True)
+        self._log_text.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._log_text.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._log_text.setStyleSheet(
             f"background:{_CARD}; color:{_DIM}; border-radius:{px(14)}px;"
             f"padding:{px(6)}px; font-family:'Fira Code','Consolas','Courier New';"
@@ -2413,12 +2649,26 @@ class Overlay:
 
     def _build_help_page(self):
         page = QtWidgets.QWidget()
-        page.setFixedWidth(px(600))
-        lay = QtWidgets.QVBoxLayout(page)
-        lay.setContentsMargins(px(10), px(12), px(10), px(18))
+        page.setFixedSize(self._PAGE_W, self._PAGE_H)
+        outer = QtWidgets.QVBoxLayout(page)
+        outer.setContentsMargins(px(6), px(2), px(6), px(8))
+        outer.setSpacing(px(2))
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{background:transparent; width:0px; margin:0;}"
+            "QScrollBar::handle:vertical{background:transparent;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}")
+        inner = QtWidgets.QWidget()
+        inner.setStyleSheet("background:transparent;")
+        lay = QtWidgets.QVBoxLayout(inner)
+        lay.setContentsMargins(0, px(6), px(2), 0)
         lay.setSpacing(px(2))
         self._page_header(lay, "Help", "Quick start and troubleshooting.")
-        lay.addSpacing(px(10))
+        lay.addSpacing(px(4))
         blocks = [
             ("Step 1 \u2013 Open the Auction House", [
                 "Launch Forza Horizon 6 and go to the Auction House on the "
@@ -2459,13 +2709,15 @@ class Overlay:
                     f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px; background:transparent;")
                 lay.addWidget(wl)
         lay.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
         return page
 
     def _build_about_page(self):
         page = QtWidgets.QWidget()
-        page.setFixedWidth(px(600))
+        page.setFixedSize(self._PAGE_W, self._PAGE_H)
         lay = QtWidgets.QVBoxLayout(page)
-        lay.setContentsMargins(px(10), px(12), px(10), px(18))
+        lay.setContentsMargins(px(6), px(2), px(6), px(8))
         lay.setSpacing(px(4))
         self._page_header(lay, "Info", "")
         body = QtWidgets.QLabel(tr(
@@ -2493,7 +2745,7 @@ class Overlay:
             f"color:{_ROG}; font-family:'Sora','Segoe UI'; font-size:{fs(14)}px;"
             "font-weight:bold; background:transparent;")
         lay.addWidget(vt)
-        vv = QtWidgets.QLabel("V.2.1.0  \u00b7  Created by d1ablo")
+        vv = QtWidgets.QLabel("V.2.2.0  \u00b7  Created by d1ablo")
         vv.setStyleSheet(
             f"color:{_DIM}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px; background:transparent;")
         lay.addWidget(vv)
@@ -2516,88 +2768,21 @@ class Overlay:
             self._content_lay.addWidget(page)
             page.show()
             self._page_in_holder = key
-        self._rebuild_rail()
-        if key == "settings" and self._cur_section:
-            idx = self._sec_index.get(self._cur_section)
-            if idx is not None:
-                self._sec_stack.setCurrentIndex(idx)
+        self._refresh_tabs()
+        sb = getattr(self, "_subbar", None)
+        if sb is not None:
+            vis = (key == "settings" and self._subbar_open)
+            if sb.isVisible() != vis:
+                sb.setVisible(vis)
+                self._fixed_win_size = None
+            for c, b in getattr(self, "_subcat_btns", {}).items():
+                b.set_active(c == self._settings_cat)
         if key == "logs":
             self._render_logs()
         if refit:
             self._apply_page_geometry()
-
-    def _show_section(self, name):
-        if name not in self._sec_index:
-            return
-        self._cur_section = name
-        self._sec_stack.setCurrentIndex(self._sec_index[name])
-        self._settings_sub.setText(tr(_child_label(name)))
-        self._refresh_rail_active()
-        self._apply_page_geometry()
-
-    # ── Geometry: window auto-fits content; we only position it ────────────
-    def _worst_rail_height(self):
-        nav_n = len([1 for k, _, _ in NAV
-                     if not (k == "settings" and self._cfg is None)])
-        h = px(10) * 2 + nav_n * px(46)
-        rows = nav_n
-        if self._cfg is not None:
-            seen = set()
-            for spec in SETTINGS_SPEC:
-                if not (isinstance(spec, tuple) and spec[0] == "section"):
-                    continue
-                name = spec[1]
-                grp = _CHILD_TO_GROUP.get(name)
-                if grp:
-                    if grp not in seen:
-                        seen.add(grp)
-                        h += px(40)
-                        rows += 1
-                    h += px(38)
-                    rows += 1
-                else:
-                    h += px(40)
-                    rows += 1
-        h += px(2) * max(0, rows - 1)
-        return h
-
     def _equalize_wide_pages(self):
-        wide_keys = ("settings", "logs", "help", "about")
-        saved = self._page_in_holder
-        if saved and saved in self._pages:
-            self._content_lay.removeWidget(self._pages[saved])
-            self._pages[saved].hide()
-            self._page_in_holder = None
-        probe = QtWidgets.QWidget()
-        probe.setAttribute(Qt.WA_DontShowOnScreen, True)
-        pl = QtWidgets.QVBoxLayout(probe)
-        pl.setContentsMargins(0, 0, 0, 0)
-        probe.resize(px(600) + 20, 1400)
-        probe.show()
-        maxh = 0
-        for k in wide_keys:
-            pg = self._pages[k]
-            pg.setMinimumHeight(0)
-            pg.setMaximumHeight(16777215)
-            pl.addWidget(pg)
-            pg.show()
-            pl.activate()
-            QtWidgets.QApplication.processEvents()
-            need = max(pg.sizeHint().height(),
-                       pg.layout().minimumSize().height())
-            maxh = max(maxh, need)
-            pl.removeWidget(pg)
-            pg.setParent(self._content)
-            pg.hide()
-        probe.deleteLater()
-        maxh = max(maxh, self._worst_rail_height())
-        for k in wide_keys:
-            self._pages[k].setFixedHeight(maxh)
-        self._wide_h = maxh
-        if saved and saved in self._pages:
-            self._content_lay.addWidget(self._pages[saved])
-            self._pages[saved].show()
-            self._page_in_holder = saved
+        self._wide_h = 0
 
     def _screen_at(self, point=None):
         if point is None:
@@ -2635,12 +2820,34 @@ class Overlay:
     def _geometry_pass_impl(self, initial=False):
         if self._wide_h is None and self._win.isVisible():
             self._equalize_wide_pages()
-        old = self._win.geometry()
         self._win.layout().activate()
-        sh = self._win.sizeHint()
-        mh = self._win.minimumSizeHint()
-        w = max(sh.width(), mh.width())
-        h = max(sh.height(), mh.height())
+        cached = getattr(self, "_fixed_win_size", None)
+        if cached is None or initial:
+            toast = getattr(self, "_toast", None)
+            was_vis = toast is not None and toast.isVisible()
+            if was_vis:
+                toast.hide()
+            self._win.layout().activate()
+            sh = self._win.sizeHint()
+            mh = self._win.minimumSizeHint()
+            w = max(sh.width(), mh.width())
+            h = max(sh.height(), mh.height())
+            if was_vis:
+                toast.show()
+            cur = self._win.size()
+            if (w < px(150) or h < px(150)) and cur.width() > px(150) \
+                    and cur.height() > px(150):
+                w, h = cur.width(), cur.height()
+            self._fixed_win_size = (int(w), int(h))
+        w, h = self._fixed_win_size
+        if (not initial and self._win.isVisible()
+                and self._win.width() == w and self._win.height() == h):
+            QTimer.singleShot(0, self._finalize_after_layout)
+            return
+        was_enabled = self._win.updatesEnabled()
+        self._win.setUpdatesEnabled(False)
+        self._win.setFixedSize(w, h)
+        old = self._win.geometry()
         if initial or not self._win.isVisible():
             screen = self._app.primaryScreen()
         else:
@@ -2656,44 +2863,13 @@ class Overlay:
         x = max(geo.left() + 8, x)
         y = min(y, geo.bottom() - h - 8)
         y = max(geo.top() + 8, y)
-        target = QRect(int(x), int(y), int(w), int(h))
-        animate = self._win.isVisible() and not initial
-        self._set_geometry(target, animate)
-        if not animate:
-            QTimer.singleShot(0, self._finalize_after_layout)
-
-    def _set_geometry(self, rect, animate):
-        if not animate:
-            self._win.setGeometry(rect)
-            return
-        old = self._win.geometry()
-        growing = (rect.width() > old.width() + 1
-                   or rect.height() > old.height() + 1)
-        cov = getattr(self, "_cover", None)
-        if cov is not None and growing:
-            cov.setGeometry(0, 0, max(old.width(), rect.width()),
-                            max(old.height(), rect.height()))
-            cov.show()
-            cov.raise_()
-        anim = getattr(self, "_geo_anim", None)
-        if anim is not None:
-            anim.stop()
-        anim = QtCore.QPropertyAnimation(self._win, b"geometry")
-        anim.setDuration(190)
-        anim.setStartValue(old)
-        anim.setEndValue(rect)
-        anim.setEasingCurve(QtCore.QEasingCurve.InOutCubic)
-        anim.finished.connect(self._finalize_after_layout)
-        self._geo_anim = anim
-        anim.start()
-
+        self._win.setGeometry(QRect(int(x), int(y), int(w), int(h)))
+        if was_enabled:
+            self._win.setUpdatesEnabled(True)
+        QTimer.singleShot(0, self._finalize_after_layout)
     def _finalize_after_layout(self):
         try:
-            self._distribute_nav_compact()
             self._clamp_position()
-            cov = getattr(self, "_cover", None)
-            if cov is not None:
-                cov.hide()
         except Exception:
             logging.getLogger("fh6").exception("finalize layout failed")
 
@@ -2712,52 +2888,158 @@ class Overlay:
         self._win.move(int(x), int(y))
 
     # ── Status / state ────────────────────────────────────────────────────
-    def _set_button(self, running):
-        self._btn.set_mode(tr("STOP") if running else tr("START"),
-                           _BTN_BG, _BTN_HV, _BTN_FG)
+    def _set_button(self, running, paused=False):
+        if running and paused:
+            self._btn.set_mode(tr("STOP"), _BTN_PAUSE_BG, _BTN_PAUSE_HV,
+                               _BTN_PAUSE_FG)
+        elif running:
+            self._btn.set_mode(tr("STOP"), _BTN_BG, _BTN_HV, _BTN_FG)
+        else:
+            self._btn.set_mode(tr("START"), _BTN_BG, _BTN_HV, _BTN_FG)
+
+    def _gauge_fraction(self):
+        if self._autostop_done:
+            return 1.0
+        cfg = self._cfg
+        auto = bool(getattr(cfg, "auto_stop_enabled", False)) if cfg else False
+        if not self._running:
+            if (auto and getattr(self, "_carry_valid", False)
+                    and getattr(self, "_bought_n", 0) > 0):
+                try:
+                    maxc = max(1, int(getattr(cfg, "max_cars", 1)))
+                except Exception:
+                    maxc = 1
+                return max(0.0, min(1.0, self._bought_n / maxc))
+            return 0.0
+        if not auto:
+            return 1.0
+        try:
+            maxc = max(1, int(getattr(cfg, "max_cars", 1)))
+        except Exception:
+            maxc = 1
+        return max(0.0, min(1.0, self._bought_n / maxc))
 
     def _retint(self):
         src = (self._status_src or "").lower()
+        paused = ("paused" in src)
+        self._update_run_clock(self._running, paused)
         if not self._running:
-            phase, color, bar = "IDLE", _DIM, "idle"
-        elif "paused" in src:
-            phase, color, bar = "PAUSED", _SECONDARY, "paused"
+            if self._autostop_done:
+                word, color = tr("DONE"), _PRIMARY
+                phase = tr("Auto-stop reached")
+            else:
+                word, color = tr("IDLE"), _DIM
+                phase = tr("Idle")
+        elif paused:
+            word, color = tr("PAUSED"), _SECONDARY
+            phase = tr(self._status_src, **self._status_kwargs)
         else:
-            phase, color, bar = "ACTIVE", _ROG, "running"
-        self._phase_lbl.setText(tr(phase))
-        self._phase_lbl.setStyleSheet(
-            f"color:{color}; font-family:'Sora','Segoe UI'; font-size:{fs(15)}px;"
-            "font-weight:bold; background:transparent;")
-        self._dot.set_color(color)
-        self._bar.set_state(bar)
+            word, color = tr("ACTIVE"), _ROG
+            phase = tr(self._status_src, **self._status_kwargs)
+        if hasattr(self, "_dot"):
+            self._dot.set_color(color)
+        lg = getattr(self, "_logo_glow", None)
+        if lg is not None:
+            gc = _qc(color)
+            gc.setAlpha(170)
+            lg.setColor(gc)
+            lg.setEnabled(color != _DIM)
+        if getattr(self, "_gauge", None) is not None:
+            self._gauge.set_word(word, color)
+            if self._running or self._autostop_done:
+                accent = color
+            elif self._gauge_fraction() > 0.001:
+                accent = _DIM
+            else:
+                accent = _TRACK
+            self._gauge.set_accent(accent)
+            self._gauge.set_fraction(self._gauge_fraction())
+        if hasattr(self, "_phase_dot"):
+            self._phase_dot.set_color(color)
+        if hasattr(self, "_phase_lbl"):
+            self._phase_lbl.setText(phase)
+            self._phase_lbl.setStyleSheet(
+                f"color:{color}; font-family:'Sora','Segoe UI'; font-size:{fs(13)}px;"
+                "font-weight:bold; background:transparent;")
+        self._set_button(self._running, paused)
 
     @QtCore.Slot(str, object)
     def _apply_status(self, msg, kwargs=None):
         self._status_src = msg
         self._status_kwargs = dict(kwargs or {})
-        self._status_lbl.setText(tr(msg, **self._status_kwargs))
         self._retint()
 
     @QtCore.Slot(bool)
     def _apply_running(self, running):
+        was = self._running
         self._running = bool(running)
-        self._set_button(self._running)
         self._active = self._running
-        if self._running and self._started is None:
+        cfg = self._cfg
+        auto = bool(getattr(cfg, "auto_stop_enabled", False)) if cfg else False
+        try:
+            maxc = max(1, int(getattr(cfg, "max_cars", 1)))
+        except Exception:
+            maxc = 1
+        if self._running and not was:
+            if self._autostop_done or not getattr(self, "_carry_valid", False):
+                self._autostop_done = False
+                self._bought_base = getattr(self, "_bought_total", 0)
+                self._bought_n = 0
             self._started = time.monotonic()
-            self._value_labels["_time"].setText("00:00")
+            if getattr(self, "_gauge", None) is not None:
+                self._gauge.set_time("00:00")
+        elif was and not self._running:
+            self._autostop_done = bool(auto and self._bought_n >= maxc)
+            self._carry_valid = bool(auto and not self._autostop_done)
         self._retint()
+
+    def _update_run_clock(self, running, paused):
+        now = time.monotonic()
+        counting = running and not paused
+        if running and not self._was_running:
+            self._elapsed_base = 0.0
+            self._segment_start = now if counting else None
+        elif not running:
+            if self._segment_start is not None:
+                self._elapsed_base += now - self._segment_start
+                self._segment_start = None
+        else:
+            if counting and self._segment_start is None:
+                self._segment_start = now
+            elif not counting and self._segment_start is not None:
+                self._elapsed_base += now - self._segment_start
+                self._segment_start = None
+        self._was_running = running
+
+    def _active_seconds(self):
+        total = self._elapsed_base
+        if self._segment_start is not None:
+            total += time.monotonic() - self._segment_start
+        return int(total)
+
+    def _tick(self):
+        if not self._running or getattr(self, "_gauge", None) is None:
+            return
+        total = self._active_seconds()
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        if h > 0:
+            self._gauge.set_time(f"{h:02d}:{m:02d}:{s:02d}")
+        else:
+            self._gauge.set_time(f"{m:02d}:{s:02d}")
 
     @QtCore.Slot(int, int, int)
     def _apply_stats(self, searches, bought, fails):
+        bought = int(bought)
+        if bought < getattr(self, "_bought_base", 0):
+            self._bought_base = 0
+        self._bought_total = bought
+        self._bought_n = max(0, bought - getattr(self, "_bought_base", 0))
         self._value_labels["_searches"].setText(str(searches))
         self._value_labels["_bought"].setText(str(bought))
         self._value_labels["_fails"].setText(str(fails))
-
-    def _tick(self):
-        if self._active and self._started is not None:
-            m, s = divmod(int(time.monotonic() - self._started), 60)
-            self._value_labels["_time"].setText(f"{m:02d}:{s:02d}")
+        if getattr(self, "_gauge", None) is not None:
+            self._gauge.set_fraction(self._gauge_fraction())
 
     # ── Settings persistence ──────────────────────────────────────────────
     def _on_slider_change(self, label, v, is_int, key=None):
@@ -2806,6 +3088,8 @@ class Overlay:
                 self._on_save(self._cfg)
             except Exception:
                 pass
+        if getattr(self, "_gauge", None) is not None:
+            self._gauge.set_fraction(self._gauge_fraction())
         self._show_toast()
 
     def _on_keybind_captured(self, key, value):
@@ -2922,32 +3206,44 @@ class Overlay:
         status_src = self._status_src
         status_kwargs = dict(self._status_kwargs)
         running = self._running
-        section = self._cur_section
         page = self._page
+        scroll_frac = 0.0
+        old_scroll = getattr(self, "_settings_scroll", None)
+        if old_scroll is not None:
+            try:
+                sb = old_scroll.verticalScrollBar()
+                mx = sb.maximum()
+                scroll_frac = (sb.value() / mx) if mx > 0 else 0.0
+            except Exception:
+                scroll_frac = 0.0
         old_layout = self._win.layout()
         if old_layout is not None:
             trash = QtWidgets.QWidget()
             trash.setLayout(old_layout)
             trash.deleteLater()
+        self._settings_scroll = None
         self._setting_widgets = {}
         self._excl_group = {}
         self._sec_index = {}
         self._value_labels = {}
-        self._nav_rows = {}
-        self._sec_rows = {}
         self._page = page
-        self._cur_section = section
+        self._fixed_win_size = None
         self._build_ui()
-        if section and section in self._sec_index:
-            self._cur_section = section
-            self._sec_stack.setCurrentIndex(self._sec_index[section])
-            self._settings_sub.setText(tr(_child_label(section)))
         self._apply_running(running)
         self._apply_status(status_src, status_kwargs)
         if self._toggle_cb is not None:
             self._btn.set_command(self._toggle_cb)
         self._select_page(page, refit=False)
         self._apply_page_geometry()
+        sc = getattr(self, "_settings_scroll", None)
+        if page == "settings" and sc is not None and scroll_frac > 0:
+            def _restore(s=sc, fr=scroll_frac):
+                try:
+                    bar = s.verticalScrollBar()
+                    bar.setValue(int(round(fr * bar.maximum())))
+                except Exception:
+                    pass
+            QTimer.singleShot(0, _restore)
         if self._color_popup is not None and self._color_popup.isVisible():
             self._color_popup.raise_()
         if self._on_save and self._cfg is not None:
@@ -2958,12 +3254,17 @@ class Overlay:
 
     # ── Live colour theme ─────────────────────────────────────────────────
     def _open_color_picker(self, key, button, default_hex):
+        was_open_same = (self._color_popup is not None
+                         and self._active_color_key == key)
         if self._color_popup is not None:
             try:
                 self._color_popup._dismiss()
             except Exception:
                 pass
             self._color_popup = None
+            self._active_color_key = None
+        if was_open_same:
+            return
         self._active_color_key = key
         popup = ColorPickerPopup(
             button.get(), default_hex,
@@ -2972,6 +3273,7 @@ class Overlay:
         self._color_popup = popup
         popup.destroyed.connect(lambda *_: self._clear_popup_ref(popup))
         popup.show_at(button)
+        self._apply_capture_affinity(popup)
 
     def _clear_popup_ref(self, popup):
         if self._color_popup is popup:
@@ -3007,27 +3309,79 @@ class Overlay:
     # ── Logs ────────────────────────────────────────────────────────────────
     @QtCore.Slot(str)
     def _add_log(self, msg):
-        self._logs.append((time.strftime("%H:%M:%S"), str(msg)))
-        if self._page == "logs":
+        ts = time.strftime("%H:%M:%S")
+        self._logs.append((ts, str(msg)))
+        if self._page != "logs" or not hasattr(self, "_log_text"):
+            return
+        flt = self._log_filter.text().strip().lower()
+        if (flt or getattr(self, "_log_empty", False)
+                or len(self._logs) >= self._logs.maxlen):
             self._render_logs()
+        else:
+            self._append_log_row(ts, str(msg))
+            sb = self._log_text.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+    def _log_color(self, msg):
+        m = str(msg).lower()
+        if m.startswith("run_once outcome:"):
+            if "failed" in m:
+                return _STATUSRED
+            if "bought" in m:
+                return _SUCCESS
+            return _TEXT_2
+        tech = ("wait {", "screen ->", "press ", "time:", "enter_search",
+                "recover: reached", "loading templates", "capture worker",
+                "results settle", "templates reloaded", "--- run_once")
+        if any(t in m for t in tech):
+            return _TEXT_2
+        if "paused" in m or "pausa" in m:
+            return _TEXT_2
+        if "auto-stop" in m or "auto stop" in m:
+            return _SUCCESS
+        red_kw = ("fail", "fallit", "error", "errore", "crash",
+                  "lost", "unable", "cannot", "can't", "non pu", "impossib",
+                  "gave up", "stop", "ferm", "arrest", "halt")
+        green_kw = ("bought", "acquist", "comprat", "success", "collect",
+                    "raccolt", "start", "started", "avviat", "avvio",
+                    "running")
+        if any(k in m for k in red_kw):
+            return _STATUSRED
+        if any(k in m for k in green_kw):
+            return _SUCCESS
+        return _TEXT_2
+
+    @staticmethod
+    def _html_escape(s):
+        return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;"))
 
     def _render_logs(self):
         if not hasattr(self, "_log_text"):
             return
         flt = self._log_filter.text().strip().lower()
         rows = list(self._logs)
+        self._log_text.clear()
+        self._log_empty = False
         if not rows:
-            self._log_text.setPlainText(tr("  no events yet."))
+            self._log_text.appendHtml(
+                f"<span style='color:{_DIM}'>&nbsp;&nbsp;"
+                f"{self._html_escape(tr('no events yet.'))}</span>")
+            self._log_empty = True
             return
-        lines = []
         for ts, msg in rows:
-            line = f"{ts}  {msg}"
-            if flt and flt not in line.lower():
+            if flt and flt not in f"{ts}  {msg}".lower():
                 continue
-            lines.append(line)
-        self._log_text.setPlainText("\n".join(lines))
+            self._append_log_row(ts, msg)
         sb = self._log_text.verticalScrollBar()
         sb.setValue(sb.maximum())
+
+    def _append_log_row(self, ts, msg):
+        color = self._log_color(msg)
+        self._log_text.appendHtml(
+            f"<span style='color:{_DIM}'>{self._html_escape(ts)}</span>"
+            f"&nbsp;&nbsp;"
+            f"<span style='color:{color}'>{self._html_escape(msg)}</span>")
 
     def _copy_logs(self):
         text = "\n".join(f"{ts}  {msg}" for ts, msg in self._logs)
@@ -3052,13 +3406,28 @@ class Overlay:
     def _exclude_from_capture(self):
         self._set_capturable(False)
 
+    def _apply_capture_affinity(self, widget):
+        if not sys.platform.startswith("win") or not self._hide_from_capture:
+            return
+        capturable = (bool(getattr(self._cfg, "overlay_capturable", False))
+                      if self._cfg is not None else False)
+        try:
+            ctypes.windll.user32.SetWindowDisplayAffinity(
+                int(widget.winId()), 0x00 if capturable else 0x11)
+        except Exception:
+            pass
+
     def _round_window_corners(self):
         if not sys.platform.startswith("win"):
             return
         try:
-            val = ctypes.c_int(2)
+            hwnd = self._hwnd()
+            pref = ctypes.c_int(1)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                self._hwnd(), 33, ctypes.byref(val), ctypes.sizeof(val))
+                hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref))
+            none_color = ctypes.c_uint(0xFFFFFFFE)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 34, ctypes.byref(none_color), ctypes.sizeof(none_color))
         except Exception:
             pass
 
